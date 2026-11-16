@@ -39,6 +39,7 @@
 
 float dp_dyn = 1.25f;
 int dp_maxit = 600;
+volatile int dp_abort;
 uint32_t dp_solves, dp_iters;
 
 /* Table 2-1: Beaufort, wind (upper limit, 10 min mean at 10 m), Hs, Tp, current */
@@ -657,7 +658,7 @@ void dp_analyse(const Vessel *v, Result *r, void (*progress)(int, int)) {
     uint32_t m = dp_case_mask(v, c);
     Alloc a;
     memset(&a, 0, sizeof a);
-    for (int h = 0; h < NHEAD; h++) {
+    for (int h = 0; h < NHEAD && !dp_abort; h++) {
       float from = (float)(h * 10);
       int num = dp_number(v, m, from, &a);
       r->num[c][h] = (signed char)num;
@@ -693,7 +694,7 @@ void dp_map(const Vessel *v, uint32_t mask, float *map, void (*progress)(int, in
   memset(&a, 0, sizeof a);
   int done = 0;
   for (int h = 0; h < NHEAD; h++)
-    for (int c = 0; c < NCUR; c++) {
+    for (int c = 0; c < NCUR && !dp_abort; c++) {
       map[h * NCUR + c] = dp_limit_wind(v, mask, (float)(h * 10), (float)c * (2.0f / (NCUR - 1)), -1, &a);
       if (progress) progress(++done, NHEAD * NCUR);
     }
@@ -972,7 +973,7 @@ void dp_abs(const Vessel *vin, float cur_kn, float margin, AbsResult *r, void (*
     uint32_t m = c == 0 ? all : c <= v.nthr ? all & ~(1u << (c - 1)) : dp_case_mask(&v, c - v.nthr);
     float *w = c == 0 ? r->intact : c <= v.nthr ? r->single[c - 1] : r->group[c - v.nthr];
     memset(&a, 0, sizeof a);
-    for (int h = 0; h < NHEAD; h++) {
+    for (int h = 0; h < NHEAD && !dp_abort; h++) {
       w[h] = dp_abs_limit(&v, m, (float)(h * 10), cur, margin, &a);
       if (progress) progress(++done, total);
     }

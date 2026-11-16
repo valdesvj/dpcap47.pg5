@@ -101,6 +101,7 @@ extern const Env DP_TABLE[NBF];         /* DNV-ST-0111 Table 2-1 */
 extern const char *const DP_TYPE[T_CNT];
 extern const char DP_EXAMPLE[];         /* the example vessel file */
 extern float dp_dyn;                    /* dynamic factor, 1.25 at level 1 */
+extern volatile int dp_abort;           /* set it to stop dp_analyse, dp_map, dp_abs at the next direction */
 extern int dp_maxit;                    /* iterations an allocation may take (600) */
 extern uint32_t dp_solves, dp_iters;    /* counters: allocations and their iterations */
 

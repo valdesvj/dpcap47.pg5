@@ -41,6 +41,7 @@ static int have_res, have_map;
 static uint32_t res_ms, map_ms, map_solves;
 static int res_mhz;
 static AbsResult *abs_res;                /* heap: ABS SKP */
+static int stopped;                       /* a computation was stopped with EXIT */
 static int have_abs, method;              /* method 0: DNV-ST-0111 level 1, 1: ABS SKP */
 static int abs_cur10 = 15, abs_margin = 20;   /* ABS: current in tenths of a knot, margin % */
 static uint32_t abs_ms;
@@ -196,7 +197,7 @@ static int vessel_load(const char *path) {      /* 0 ok, else msg says why; "" =
   vessel = v;
   snprintf(vfile, sizeof vfile, "%s", path);
 fresh:
-  have_res = have_map = have_abs = 0;
+  have_res = have_map = have_abs = stopped = 0;
   live_off = 0; live_fail = 0;
   memset(&live_a, 0, sizeof live_a);
   return 0;
@@ -230,6 +231,9 @@ static uint32_t t_start;
 static const char *busy_what;
 static void progress(int done, int total) {
   static int last;
+#ifndef DPCAP47_SIM                         /* EXIT stops the computation (the simulator's keys are a script) */
+  while (!key_empty()) if (key_pop() == KEY_EXIT) dp_abort = 1;
+#endif
   int w = 360 * done / total;
   if (done != total && w == last && done > 1) return;
   last = w;
@@ -239,7 +243,7 @@ static void progress(int done, int total) {
   lcd_fill_rect(20, 110, 360, 1, 1); lcd_fill_rect(20, 125, 360, 1, 1);
   lcd_fill_rect(20, 110, 1, 16, 1); lcd_fill_rect(379, 110, 1, 16, 1);
   lcd_fill_rect(0, 132, LCD_X, 44, 0);
-  sprintf(s, "%s %d / %d", busy_what, done, total);
+  sprintf(s, "%s %d / %d    EXIT stops", busy_what, done, total);
   text(20, 134, s, 0);
   sprintf(s, "%u allocations  %s s", (unsigned)dp_solves, fmt(t, (sys_current_ms() - t_start) / 1000.0f, 1));
   text(20, 156, s, 0);
@@ -263,10 +267,11 @@ static void compute(void) {
   busy_what = "direction";
   dp_solves = 0;
   t_start = sys_current_ms();
+  dp_abort = 0;
   dp_analyse(&vessel, res, progress);
   res_ms = sys_current_ms() - t_start;
   res_mhz = usb_powered() ? 160 : 80;
-  have_res = 1;
+  have_res = !dp_abort; stopped = dp_abort; dp_abort = 0;
 }
 
 static void compute_abs(void) {
@@ -278,14 +283,25 @@ static void compute_abs(void) {
   busy_what = "direction";
   dp_solves = 0;
   t_start = sys_current_ms();
+  dp_abort = 0;
   dp_abs(&vessel, abs_cur10 / 10.0f, abs_margin / 100.0f, abs_res, progress);
   abs_ms = sys_current_ms() - t_start;
   res_mhz = usb_powered() ? 160 : 80;
-  have_abs = 1;
+  have_abs = !dp_abort; stopped = dp_abort; dp_abort = 0;
 }
 
 static void compute_method(void) { if (method) compute_abs(); else compute(); }
 static int have_method(void) { return method ? have_abs : have_res; }
+
+static int need_result(void) {            /* 1: there is a result to show; else the page says why not */
+  if (!have_method() && !stopped) compute_method();
+  if (have_method()) return 1;
+  lcd_clear_buf();
+  bar("DPCAP47  stopped");
+  text(20, 60, "The computation was stopped.", 0);
+  text(20, 84, "PLOT, then ENTER: compute it.", 0);
+  return 0;
+}
 
 static void compute_map(void) {
   if (!map) return;
@@ -293,10 +309,11 @@ static void compute_map(void) {
   busy_what = "search";
   dp_solves = 0;
   t_start = sys_current_ms();
+  dp_abort = 0;
   dp_map(&vessel, dp_case_mask(&vessel, 0), map, progress);
   map_ms = sys_current_ms() - t_start;
   map_solves = dp_solves;
-  have_map = 1;
+  have_map = !dp_abort; dp_abort = 0;
 }
 
 /* ------------------------------------------------------------------ PLOT */
@@ -376,7 +393,7 @@ static void abs_panel(int x, int y) {
 }
 
 static void page_plot(void) {
-  if (!have_method()) compute_method();
+  if (!need_result()) return;
   lcd_clear_buf();
   char s[64], a[12], b[12], c[12], d[12], t[16];
   snprintf(s, sizeof s, "DPCAP47  %s   . %s", vessel.name, method ? "DNV" : "ABS");
@@ -423,7 +440,7 @@ static void page_table_abs(void) {
 }
 
 static void page_table(void) {
-  if (!have_method()) compute_method();
+  if (!need_result()) return;
   lcd_clear_buf();
   if (method) { page_table_abs(); return; }
   char s[96], t[16], u[16];
@@ -539,8 +556,9 @@ static void page_map(void) {
   if (!have_map) {
     text(20, 50, "The limiting wind for each direction", 0);
     text(20, 72, "and each current from 0 to 2 m/s:", 0);
-    text(20, 94, "36 x 17 = 612 searches, intact.", 0);
-    text(20, 130, "ENTER: compute", 1);
+    text(20, 94, "36 x 17 = 612 searches, intact. Slow:",  0);
+    text(20, 116, "several times the PLOT's time.", 0);
+    textinv(20, 146, "ENTER: compute   EXIT: stop");
     return;
   }
   int x0 = 36, y0 = TOP + 4, cw = 10, ch = 8;
@@ -618,6 +636,7 @@ static void pr_text(const char *s) {
 
 static void print_all(void) {
   if (!have_method()) compute_method();
+  if (!have_method()) return;
   pbuf = calloc(PW, PW / 8 + 1);
   if (!pbuf) { strcpy(msg, "no memory to print"); return; }
   busy_screen("DPCAP47: printing (IR)", "HP 82240 printer");
@@ -813,6 +832,7 @@ void program_main(void) {
   run_menu_item_app = run_menu_item;
   menu_line_str_app = menu_line_str;
   pset = px_lcd;
+  dp_maxit = 200;                           /* the calculator: quicker; the PC uses 600 (winds within 0.1 m/s) */
   res = malloc(sizeof *res);
   abs_res = malloc(sizeof *abs_res);
   map = malloc(sizeof(float) * NHEAD * NCUR);

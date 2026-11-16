@@ -15,7 +15,7 @@ Part of the "47" family of projects (almanac47, chess47.pg5, nav47.pg5, hp47.pg5
 
 ![DPCAP47 screens](docs/screens.png)
 
-> **Version 0.2: not yet tested on the calculator.** Everything here runs on the PC (`make test`,
+> **Version 0.3: first tried on the calculator; EXIT now stops a computation.** Everything here runs on the PC (`make test`,
 > `make lpcheck`, `make shots`). The DM42n's speed, and printing over IR, are still to be seen.
 
 > **Not for class, contracts or operations.** DPCAP47 follows DNV-ST-0111 (Edition December 2021) level 1 section
