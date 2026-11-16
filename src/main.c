@@ -61,11 +61,14 @@ static Alloc live_a;
 static uint32_t live_us;
 
 /* ------------------------------------------------------------------ drawing */
+/* lnfill off: DMCP would wipe the whole width of the text's rows first, and with it the drawing beside the text
+   (the hull, the plot); newln off: no line feed. As Chess 47 does. */
 static void text(int x, int y, const char *s, int inv) {
-  t20->inv = inv;
+  uint8_t lnf = t20->lnfill, nl = t20->newln;
+  t20->lnfill = 0; t20->newln = 0; t20->inv = (uint8_t)inv;
   lcd_setXY(t20, x, y);
   lcd_writeText(t20, s);
-  t20->inv = 0;
+  t20->inv = 0; t20->lnfill = lnf; t20->newln = nl;
 }
 
 static int tw(const char *s) { return lcd_textWidth(t20, s); }
