@@ -18,8 +18,6 @@ from . import engine as E
 RHO_AIR, RHO_W, G = 1.226, 1026.0, 9.81
 KN = 0.514444                                    # m/s a knot
 
-# PROVISIONAL coefficients, the same as dp_force in src/dpcap.c (level 1)
-CXW, CYW, CXC, CYC, CXD, CYD = 0.80, 0.90, 0.60, 0.80, 0.30, 0.20
 
 # ABS DPS Guide, Section 9, Table 1: North Sea wind-wave relationship. (Hs m, Tp s, Vw m/s 1-min mean, P non-exc %)
 ABS_TABLE1 = [(0, 0, 0, 0.0), (1.28, 5.3, 2.5, 14.3), (1.78, 6.26, 5, 35.7), (2.44, 7.32, 7.5, 56.9),
@@ -79,30 +77,28 @@ def _coef(table, d):
 
 def weather_force(v, ex, env, frm, factor):
     """The weather's force on the vessel (Fx, Fy, Mz) x factor: the vessel's own tables where it has them,
-    else the provisional coefficients (as the C's dp_force)."""
+    else DNV-ST-0111 level 1's formulas (3.5 - 3.7, the C's dp_force_parts)."""
     wind, hs, _tp, cur = env
-    c, s = math.cos(math.radians(frm)), math.sin(math.radians(frm))
     qw = 0.5 * RHO_AIR * wind * wind / 1000
     qc = 0.5 * RHO_W * cur * cur / 1000
     qd = RHO_W * G * hs * hs / 1000
+    lw, lc, ld = E.force_parts(v, env, frm)
     F = [0.0, 0.0, 0.0]
     if ex is not None and ex.cw:
         cx, cy, cn = _coef(ex.cw, frm)
         F[0] += qw * v.afw * cx; F[1] += qw * v.alw * cy; F[2] += qw * v.alw * v.lpp * cn
     else:
-        wy = -qw * v.alw * CYW * s
-        F[0] += -qw * v.afw * CXW * c; F[1] += wy; F[2] += wy * v.xlw
+        F = [F[k] + lw[k] for k in range(3)]
     if ex is not None and ex.cc:
         cx, cy, cn = _coef(ex.cc, frm)
         F[0] += qc * v.b * v.t * cx; F[1] += qc * v.alc * cy; F[2] += qc * v.alc * v.lpp * cn
     else:
-        cy_ = -qc * v.alc * CYC * s
-        F[0] += -qc * v.b * v.t * CXC * c; F[1] += cy_; F[2] += cy_ * v.xlc
+        F = [F[k] + lc[k] for k in range(3)]
     if ex is not None and ex.cd:
         cx, cy, cn = _coef(ex.cd, frm)
         F[0] += qd * v.lpp * cx; F[1] += qd * v.lpp * cy; F[2] += qd * v.lpp * v.lpp * cn
     else:
-        F[0] += -qd / 16 * v.b * CXD * c; F[1] += -qd / 16 * v.lpp * CYD * s
+        F = [F[k] + ld[k] for k in range(3)]
     return tuple(factor * x for x in F)
 
 
@@ -160,14 +156,16 @@ def _search(held, rows):
     return n, lo
 
 
-def _limits(v, ex, mask, rows, env_of, factor):
+def _limits(v, ex, mask, rows, env_of, factor, ventilation=False):
     a = E.Alloc()
     nums, winds, count = [], [], [0]
 
     def held(w, frm=0.0):
-        F = weather_force(v, ex, env_of(w), frm, factor)
+        env = env_of(w)
+        F = weather_force(v, ex, env, frm, factor)
         count[0] += 1
-        return E.alloc(v, mask, (-F[0], -F[1], -F[2]), a).ok
+        beta = E.vent(v, env, frm) if ventilation else None
+        return E.alloc(v, mask, (-F[0], -F[1], -F[2]), a, beta=beta).ok
 
     for h in range(E.NHEAD):
         n, w = _search(lambda w: held(w, h * 10.0), rows)
@@ -206,9 +204,24 @@ def dnv_l1(v, ex=None):
     res.summary = "DP Capability-L1 (%s, %s, %s, %s)" % (r.A, r.B, _fmt(D(r.C)), _fmt(D(r.D)))
     res.numbers = (r.A, r.B, D(r.C), D(r.D))
     res.solves = r.solves
-    res.notes = ["The calculator's engine and numbers.",
-                 "Wind, current and wave drift coefficients and kN/kW are PROVISIONAL (not yet DNV's formulas)."]
+    res.notes = ["The calculator's engine and numbers: DNV-ST-0111 (Dec. 2021) level 1, sections 3.2 - 3.12.",
+                 "Not in: batteries, cycloidal and water jet actuators."] + assumed_notes(v)
     return res
+
+
+def assumed_notes(v):
+    """What the vessel file did not give, so DPCAP47 assumed."""
+    out = []
+    names = ((E.VA_LOS, "Los = Lpp"), (E.VA_XLOS, "xLos = 0"), (E.VA_BOW, "bow angle 35 deg"), (E.VA_CWL, "CWLaft = 1"))
+    a = [s for f, s in names if v.assumed & f]
+    if a:
+        out.append("ASSUMED (not in the file): " + ", ".join(a) + ".")
+    for t in E.thrusters(v):
+        if t.flags & E.TF_NO_D:
+            out.append("%s: no diameter: thrust from kW x a typical kN/kW, no ventilation loss." % t.name.decode())
+        if t.flags & E.TF_NO_AR:
+            out.append("%s: a rudder without its area: no rudder force." % t.name.decode())
+    return out
 
 
 # ------------------------------------------------------------------ DNV level 2 and level 2-site
@@ -230,15 +243,15 @@ def dnv_l2(v, ex, dyn=1.25, site=False):
     cases = [("intact", E.case_mask(v, 0), "intact")] + \
             [("group %d lost" % g, E.case_mask(v, g), "group") for g in groups if len(groups) > 1]
     for label, m, kind in cases:
-        nums, winds, n = _limits(v, ex, m, rows, env_of, dyn)
+        nums, winds, n = _limits(v, ex, m, rows, env_of, dyn, ventilation=True)
         res.solves += n
         res.cases.append(Case(label, m, winds, None if site else nums, kind))
     gl = [c for c in res.cases if c.kind == "group"]
     if gl:
         res.cases.append(Case("worst single failure", 0, _worst(gl, E.NHEAD),
                               None if site else [min(c.nums[h] for c in gl) for h in range(E.NHEAD)], "wcsf"))
-    src = "the vessel's tables" if ex and ex.level2() else "the PROVISIONAL level 1 coefficients (no cw/cc/cd)"
-    res.notes = ["Forces from %s; dynamic factor %.2f." % (src, dyn)]
+    src = "the vessel's tables" if ex and ex.level2() else "level 1's formulas (no cw/cc/cd tables in the file)"
+    res.notes = ["Forces from %s; dynamic factor %.2f; thrust and losses as level 1." % (src, dyn)] + assumed_notes(v)
     if site:
         res.summary = "site: current %.2f m/s, %d weather steps (plots only, no numbers)" % (cur, len(ex.site))
         res.numbers = None
@@ -329,6 +342,7 @@ def abs_skp(v, ex, current_kn=1.5, margin=0.20, use_abs_thrust=True, location="N
     res.skp = (a, b, c, d)
     res.summary = "SKP(%s, %s, %s, %s, %.1f, %s)" % (f(a), f(b), f(c), f(d), current_kn, location)
     res.notes = ["Wind is the 1-min mean of ABS Table 1 (North Sea); DNV's is the 10-min mean.",
+                 "Forces: the vessel's tables, else DNV level 1's formulas (ABS points to API RP 2SK / OCIMF).",
                  "Margin %.0f %% on the weather (the DPS Guide's quasi-static safety margin)." % (margin * 100),
                  "Current %.2f kn (%.2f m/s) from every direction with the wind." % (current_kn, cur)] + tnotes
     if not tnotes:

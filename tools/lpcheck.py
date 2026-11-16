@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """lpcheck.py DPTEST FILE.DPV - check DPCAP47's allocation against an exact linear programme (scipy).
 
-For every direction (10 degrees), every case (intact, each group lost) and every Beaufort number, the LP finds the
-largest lam for which lam x the force is inside the thrusters' sets (azimuth discs as 64-gons, a forbidden zone as two
-convex halves, a propeller as ahead-with-rudder or astern), each combination of pieces tried. The engine's answer
-(HELD) must agree with lam >= 1 but for the cases within 1 % of the edge. Power limits (gen=) are not in the LP:
-leave them out of the file. Exit 1 if they disagree anywhere.
+For every direction (10 degrees), every case (intact, each group lost) and every Beaufort number, dptest gives the
+force to hold and each working thruster's set as the engine has it: a union of convex pieces (segments, discs,
+sectors, polygons: rudders, forbidden and flushing zones, skeg losses) and its ventilation loss. The LP finds the
+largest lam for which lam x the force is reachable, trying each combination of pieces (discs and arcs as 64-gons).
+The engine's answer (HELD) must agree with lam >= 1 but for the cases within 1 % of the edge. Power limits (gen=)
+are not in the LP: leave them out of the file. Exit 1 if they disagree anywhere.
+Copyright (C) 2026 Victor Valdes - GPL-3.0-or-later.
 """
 import itertools
 import math
@@ -27,74 +29,71 @@ def ask(dptest, f, case, frm, bf):
         if p[0] == "TAU":
             tau = list(map(float, p[1:]))
         elif p[0] == "T":
-            th.append([int(p[1])] + list(map(float, p[2:])))
+            th.append({"x": float(p[2]), "y": float(p[3]), "beta": float(p[4]), "pieces": []})
+        elif p[0] == "P":
+            kind = int(p[1])
+            a0, span, r = float(p[2]), float(p[3]), float(p[4])
+            v = list(map(float, p[5:]))
+            th[-1]["pieces"].append((kind, a0, span, r, [(v[k], v[k + 1]) for k in range(0, len(v), 2)]))
         elif p[0] == "HELD":
             held = int(p[1])
     return tau, th, held
 
 
-def wrap(a):
-    return a % 360.0
-
-
 def lam(tau, th):
-    def pieces(t):
-        ty, x, y, tf, tr, cl, fa, fb = t
-        if ty == 3:
-            return 2 if tr > 0 else 1
-        if ty in (1, 2) and wrap(fb - fa) > 0:
-            return 2
-        return 1
-
     n = len(th)
-    choice = [range(pieces(t)) for t in th]
     best = 0.0
-    for combo in itertools.product(*choice):
+    for combo in itertools.product(*[range(len(t["pieces"])) for t in th]):
         A_eq = np.zeros((3, 2 * n + 1))
-        A_ub, b_ub, bounds = [], [], []
+        A_ub, b_ub, eq_rows, eq_b = [], [], [], []
         for i, t in enumerate(th):
-            ty, x, y, tf, tr, cl, fa, fb = t
             A_eq[0, 2 * i] = 1
             A_eq[1, 2 * i + 1] = 1
-            A_eq[2, 2 * i] = -y
-            A_eq[2, 2 * i + 1] = x
+            A_eq[2, 2 * i] = -t["y"]
+            A_eq[2, 2 * i + 1] = t["x"]
+            s = t["beta"]
+            kind, a0, span, r, vs = t["pieces"][combo[i]]
 
-            def row(cx, cy, b):
-                r = [0.0] * (2 * n + 1)
-                r[2 * i], r[2 * i + 1] = cx, cy
-                A_ub.append(r)
+            def le(cx, cy, b):                          # cx fx + cy fy <= b
+                row = [0.0] * (2 * n + 1)
+                row[2 * i], row[2 * i + 1] = cx, cy
+                A_ub.append(row)
                 b_ub.append(b)
 
-            if ty == 0:
-                bounds += [(0, 0), (-tf, tf)]
-            elif ty == 3:
-                if combo[i] == 0:
-                    bounds += [(0, tf), (None, None)]
-                    row(-cl, 1, 0)
-                    row(-cl, -1, 0)
-                else:
-                    bounds += [(-tr, 0), (0, 0)]
-            else:
-                bounds += [(None, None), (None, None)]
-                span = wrap(fb - fa)
-                if span > 0:                       # a convex half of what is allowed: two half-planes and the arc
-                    half = (360 - span) / 2
-                    a0 = fb + (0 if combo[i] == 0 else half)
-                    a1 = a0 + half
-                    for a, s in ((a0, 1), (a1, -1)):  # stay on the inside of each boundary ray
-                        r = math.radians(a)
-                        row(s * math.sin(r), -s * math.cos(r), 0)
-                    ks = [a0 + half * k / 32 for k in range(33)]
-                else:
-                    ks = [360 * k / 64 for k in range(64)]
-                for a in ks:
-                    r = math.radians(a)
-                    row(math.cos(r), math.sin(r), tf)
+            if kind == 0:                               # a segment: on its line, between its ends
+                (ax, ay), (bx, by) = [(x * s, y * s) for x, y in vs]
+                dx, dy = bx - ax, by - ay
+                row = [0.0] * (2 * n + 1)
+                row[2 * i], row[2 * i + 1] = -dy, dx
+                eq_rows.append(row)
+                eq_b.append(-dy * ax + dx * ay)
+                le(-dx, -dy, -(dx * ax + dy * ay))
+                le(dx, dy, dx * bx + dy * by)
+            elif kind == 1:                             # a disc
+                for k in range(64):
+                    a = 2 * math.pi * k / 64
+                    le(math.cos(a), math.sin(a), r * s)
+            elif kind == 2:                             # a sector: two half-planes and the arc
+                for a, sg in ((a0, 1), (a0 + span, -1)):
+                    q = math.radians(a)
+                    le(sg * math.sin(q), -sg * math.cos(q), 0)
+                for k in range(33):
+                    q = math.radians(a0 + span * k / 32)
+                    le(math.cos(q), math.sin(q), r * s)
+            else:                                       # a convex polygon, corners in order
+                m = len(vs)
+                for k in range(m):
+                    (ax, ay), (bx, by) = vs[k], vs[(k + 1) % m]
+                    ax, ay, bx, by = ax * s, ay * s, bx * s, by * s
+                    # inside: (b - a) x (f - a) >= 0
+                    le((by - ay), -(bx - ax), (by - ay) * ax - (bx - ax) * ay)
         A_eq[:, 2 * n] = -np.array(tau)
-        bounds.append((0, None))
+        Aeq = np.vstack([A_eq] + [np.array(eq_rows)] if eq_rows else [A_eq])
+        beq = [0, 0, 0] + eq_b
+        bounds = [(None, None)] * (2 * n) + [(0, None)]
         c = np.zeros(2 * n + 1)
         c[-1] = -1
-        res = linprog(c, A_ub=A_ub or None, b_ub=b_ub or None, A_eq=A_eq, b_eq=[0, 0, 0], bounds=bounds)
+        res = linprog(c, A_ub=A_ub or None, b_ub=b_ub or None, A_eq=Aeq, b_eq=beq, bounds=bounds)
         if res.status == 0:
             best = max(best, res.x[-1])
     return best
@@ -103,7 +102,6 @@ def lam(tau, th):
 def main():
     dptest, f = sys.argv[1], sys.argv[2]
     _, th0, _ = ask(dptest, f, 0, 0, 1)
-    # the cases: intact and each group, as dptest numbers them (0 .. groups); stop at the first empty one
     cases = [0]
     for g in range(1, 7):
         _, th, _ = ask(dptest, f, g, 0, 1)
@@ -114,14 +112,14 @@ def main():
         for frm in range(0, 360, 10):
             for bf in range(1, 12):
                 tau, th, held = ask(dptest, f, case, frm, bf)
-                l = lam(tau, th)
+                lm = lam(tau, th)
                 total += 1
-                if abs(l - 1) < 0.01:
+                if abs(lm - 1) < 0.01:
                     edge += 1
                     continue
-                if (l >= 1) != bool(held):
+                if (lm >= 1) != bool(held):
                     bad += 1
-                    print("DIFFER case %d from %3d BF %2d: LP lam %.3f, engine %s" % (case, frm, bf, l,
+                    print("DIFFER case %d from %3d BF %2d: LP lam %.3f, engine %s" % (case, frm, bf, lm,
                           "held" if held else "not held"))
     print("%s: %d of %d agree (%d within 1 %% of the edge, not judged)" % (f, total - bad - edge, total - edge, edge))
     sys.exit(1 if bad else 0)

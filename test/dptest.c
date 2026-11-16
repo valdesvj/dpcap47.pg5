@@ -38,34 +38,72 @@ static void print_result(const Vessel *v, const Result *r) {
          (unsigned)r->solves, (unsigned)r->iters);
 }
 
+/* a random point of a piece of a thruster's set */
+static void piece_point(const Piece *p, float f[2]) {
+  float a, r;
+  switch (p->kind) {
+  case K_SEG: r = frand(0, 1); f[0] = p->v[0][0] + r * (p->v[1][0] - p->v[0][0]); f[1] = p->v[0][1] + r * (p->v[1][1] - p->v[0][1]); return;
+  case K_DISK: a = frand(0, 360); r = frand(0, p->r); break;
+  case K_SECT: a = p->a0 + frand(0, p->span); r = frand(0, p->r); break;
+  default: {                                       /* a triangle of the fan from corner 0, a random point in it */
+    int k = 1 + rand() % (p->nv - 2);
+    float u = frand(0, 1), w = frand(0, 1);
+    if (u + w > 1) { u = 1 - u; w = 1 - w; }
+    f[0] = p->v[0][0] + u * (p->v[k][0] - p->v[0][0]) + w * (p->v[k + 1][0] - p->v[0][0]);
+    f[1] = p->v[0][1] + u * (p->v[k][1] - p->v[0][1]) + w * (p->v[k + 1][1] - p->v[0][1]);
+    return;
+  }
+  }
+  f[0] = r * cosf(a * 3.14159265f / 180); f[1] = r * sinf(a * 3.14159265f / 180);
+}
+
 /* a force the thrusters can surely give: each at a random point of its own set, scaled by k */
 static void reachable(const Vessel *v, uint32_t m, float k, float tau[3]) {
+  const Region *rg = dp_regions(v, m);
   tau[0] = tau[1] = tau[2] = 0;
   for (int i = 0; i < v->nthr; i++) {
-    if (!(m >> i & 1)) continue;
+    if (!(m >> i & 1) || rg[i].n == 0) continue;
     const Thruster *t = &v->thr[i];
     float f[2];
-    if (t->type == T_TUN) { f[0] = 0; f[1] = frand(-t->tf, t->tf); }
-    else if (t->type == T_PROP) { f[0] = frand(0, t->tf); f[1] = frand(-1, 1) * t->cl * f[0]; }
-    else {
-      float span = fmodf(t->fz_b - t->fz_a + 360.0f, 360.0f), a;
-      a = span > 0 ? t->fz_b + frand(0, 360.0f - span) : frand(0, 360);
-      float r = frand(0, t->tf);
-      f[0] = r * cosf(a * 3.14159265f / 180); f[1] = r * sinf(a * 3.14159265f / 180);
-    }
+    piece_point(&rg[i].p[rand() % rg[i].n], f);
     tau[0] += k * f[0]; tau[1] += k * f[1]; tau[2] += k * (t->x * f[1] - t->y * f[0]);
   }
 }
 
+/* does a piece reach out in direction th (degrees), farther than r? */
+static float reach(const Piece *p, float th) {
+  float ux = cosf(th * 3.14159265f / 180), uy = sinf(th * 3.14159265f / 180), best = 0;
+  if (p->kind == K_DISK) return p->r;
+  if (p->kind == K_SECT) { float d = fmodf(th - p->a0 + 720.0f, 360.0f); return d <= p->span ? p->r : 0; }
+  if (p->kind == K_SEG) {
+    for (int k = 0; k < 2; k++) {
+      float x = p->v[k][0], y = p->v[k][1], m = sqrtf(x * x + y * y);
+      if (m > 1e-3f && x * ux + y * uy > 0.999f * m && m > best) best = m;
+    }
+    return best;
+  }
+  for (int k = 1; k < p->nv; k++) {                /* a polygon: its corners along th */
+    float x = p->v[k][0], y = p->v[k][1], m = sqrtf(x * x + y * y);
+    if (m > 1e-3f && x * ux + y * uy > 0.9995f * m && m > best) best = m;
+  }
+  return best;
+}
+
+static float reach_all(const Region *r, float th) {
+  float b = 0;
+  for (int k = 0; k < r->n; k++) { float x = reach(&r->p[k], th); if (x > b) b = x; }
+  return b;
+}
+
 static const char SYM[] =
-  "name=SYMMETRIC\nlpp=100\nb=20\nt=6\nafw=350\nalw=1200\nxlw=0\n"
-  "thr=B1,TUN,45,0,1200,0,1\nthr=B2,TUN,42,0,1200,0,2\n"
-  "thr=AP,AZD,-45,-5,2500,0,1\nthr=AS,AZD,-45,5,2500,0,2\n";
+  "name=SYMMETRIC\nlpp=100\nb=20\nt=6\nafw=350\nalw=1200\nxlw=0\nlos=104\nbowdeg=30\nawlaft=1000\n"
+  "thr=B1,TUN,45,0,1200,0,1,0,0,,2.2,2.5\nthr=B2,TUN,42,0,1200,0,2,0,0,,2.2,2.5\n"
+  "thr=AP,AZD,-45,-5,2500,0,1,0,0,,3.2,1.5\nthr=AS,AZD,-45,5,2500,0,2,0,0,,3.2,1.5\n";
 
 static const char PROPS[] =
   "name=PROPS\nlpp=90\nb=18\nt=6\nafw=300\nalw=900\nxlw=3\n"
-  "thr=BT,TUN,40,0,800,0,1\nthr=MP,PROP,-42,-4,2000,0,1,0,0,RC\nthr=MS,PROP,-42,4,2000,0,2,0,0,RC\n"
-  "thr=ST,TUN,-35,0,600,0,2\n";
+  "thr=BT,TUN,40,0,800,0,1,0,0,,1.8,2.5\nthr=MP,PROP,-42,-4,2000,0,1,0,0,RC,3.4,2.4,5.5\n"
+  "thr=MS,PROP,-42,4,2000,0,2,0,0,RC,3.4,2.4,5.5\nthr=ST,TUN,-35,0,600,0,2,0,0,,1.6,2.5\n";
 
 static int load(const char *path, Vessel *v) {
   FILE *f = fopen(path, "rb");
@@ -87,12 +125,22 @@ int main(int argc, char **argv) {
     dp_force(&v, &DP_TABLE[atoi(argv[4])], (float)atof(argv[3]), tau);
     printf("TAU %g %g %g\n", -tau[0], -tau[1], -tau[2]);
     uint32_t m = dp_case_mask(&v, atoi(argv[2]));
-    for (int i = 0; i < v.nthr; i++) {
+    Env e = DP_TABLE[atoi(argv[4])];
+    float beta[MAX_THR];
+    dp_vent(&v, &e, (float)atof(argv[3]), beta);
+    const Region *rg = dp_regions(&v, m);
+    for (int i = 0; i < v.nthr; i++) {                 /* each working thruster's set: its convex pieces */
       const Thruster *t = &v.thr[i];
-      if (m >> i & 1) printf("T %d %g %g %g %g %g %g %g\n", t->type, t->x, t->y, t->tf, t->tr, t->cl, t->fz_a, t->fz_b);
+      if (!(m >> i & 1)) continue;
+      printf("T %d %g %g %g\n", i, t->x, t->y, beta[i]);
+      for (int k = 0; k < rg[i].n; k++) {
+        const Piece *p = &rg[i].p[k];
+        printf("P %d %g %g %g", p->kind, p->a0, p->span, p->r);
+        for (int q = 0; q < (p->kind == K_SEG ? 2 : p->kind == K_POLY ? p->nv : 0); q++) printf(" %g %g", p->v[q][0], p->v[q][1]);
+        printf("\n");
+      }
     }
     Alloc a; memset(&a, 0, sizeof a);
-    Env e = DP_TABLE[atoi(argv[4])];
     printf("HELD %d\n", dp_held(&v, m, &e, (float)atof(argv[3]), &a));
     return 0;
   }
@@ -122,9 +170,16 @@ int main(int argc, char **argv) {
   char err[80];
   int pe = dp_parse(&v, DP_EXAMPLE, err, sizeof err);
   CHECK(pe == 0 && v.nthr == 6 && v.ngrp == 3, "the example vessel file reads (%s)", pe ? err : v.name);
-  float bt = 0.110f * 1500 * 0.93f * 0.93f * 0.9f;
-  CHECK(fabsf(v.thr[0].tf - bt) < 0.01f && fabsf(v.thr[3].tf - 0.16f * 3000 * 0.93f * 0.9f) < 0.01f,
-        "thrust: tunnel %.1f kN (0.93 inlet, 0.93 mech., 0.9 misc.), azimuth %.1f kN", v.thr[0].tf, v.thr[3].tf);
+  double bt = 900 * 0.93 * pow(2.4 * 1500 * 0.93, 2.0 / 3) / 1000 * 0.9;      /* 3.9.2: eta1 900, eta2 0.93, etaM 0.93 */
+  double az = 1200 * pow(3.6 * 3000 * 0.93, 2.0 / 3) / 1000 * 0.9;             /* ducted: eta1 1200 */
+  CHECK(fabs(v.thr[0].tf - bt) < 0.05 && fabs(v.thr[3].tf - az) < 0.2 && !v.thr[0].flags && !v.assumed,
+        "thrust (3.9.2): tunnel %.1f kN, ducted azimuth %.1f kN (x 0.9 misc.)", v.thr[0].tf, v.thr[3].tf);
+  {
+    Vessel vp2; dp_parse(&vp2, PROPS, err, sizeof err);
+    double cy = 0.0126 * 1.1 * 5.5 / (3.4 * 3.4), side = cy * 30;
+    CHECK(fabs(vp2.thr[1].cy - cy) < 1e-5 && fabs(vp2.thr[1].tr / vp2.thr[1].tf - 0.65) < 1e-4,
+          "rudder (3.10): Cy %.4f a degree, side force at 30 degrees %.0f %% of the thrust; CPP astern 0.65", cy, side * 100);
+  }
   Vessel bad;
   CHECK(dp_parse(&bad, "lpp=100\nb=20\nt=5\nthr=X,FOO,0,0,100,0,1\n", err, sizeof err) && strstr(err, "FOO"),
         "a bad file says why: %s", err);
@@ -137,6 +192,44 @@ int main(int argc, char **argv) {
   CHECK(tau[1] < 0 && fabsf(ty) < 1e-3f, "forces: head on F %.0f kN sideways, from starboard %.0f kN (to port)", ty, tau[1]);
   dp_dyn = 1.0f; float t1[3]; dp_force(&v, &DP_TABLE[6], 90, t1); dp_dyn = 1.25f;
   CHECK(fabsf(tau[1] / t1[1] - 1.25f) < 1e-4f, "the dynamic factor 1.25");
+  {                                     /* the formulas of 3.5 - 3.7, worked out here again in double */
+    float o[9];
+    dp_force_parts(&v, &DP_TABLE[6], 90, o);
+    double fyw = -0.5 * 1.226 * 13.8 * 13.8 * 1500 * 0.9 / 1000, fyc = -0.5 * 1026 * 0.75 * 0.75 * 770 * 0.6 / 1000;
+    int ok = fabs(o[1] - fyw) < 0.01 && fabs(o[2] - fyw * 5) < 0.05 && fabs(o[4] - fyc) < 0.01 && fabs(o[5]) < 0.01;
+    dp_force_parts(&v, &DP_TABLE[8], 0, o);                     /* head seas, Beaufort 8 */
+    double bow = 34 * M_PI / 180, cw = 1150 / (55.0 * 22), h1 = 0.8 * pow(bow, 0.45);
+    double h2 = 0.05 + 0.95 * atan(1.45 * (0 - 1.75)), tz = 10.0 / 1.4049;
+    double tsu = tz / (0.9 * pow(110, 0.33)), f = tsu < 1 ? 1 : pow(tsu, -3) * exp(1 - pow(tsu, -3));
+    double fxd = 0.5 * 1026 * 9.81 * 5.7 * 5.7 * 22 * 0.09 * h1 * h2 * f / 1000;
+    double fxw = 0.5 * 1.226 * 20.7 * 20.7 * 420 * -0.7 / 1000, fxc = 0.5 * 1026 * 0.5625 * 22 * 7 * -0.07 / 1000;
+    (void)cw;
+    ok = ok && fabs(o[6] - fxd) < 0.05 && fabs(o[0] - fxw) < 0.01 && fabs(o[3] - fxc) < 0.01 && fabs(o[7]) < 1e-3;
+    CHECK(ok, "3.5 - 3.7: beam wind %.0f kN and current %.0f kN at Beaufort 6; head seas Beaufort 8: wind %.0f, "
+          "current %.1f, wave drift %.0f kN", fyw, fyc, fxw, fxc, fxd);
+    dp_force_parts(&v, &DP_TABLE[8], 180, o);
+    CHECK(o[6] > 0 && o[0] > 0, "seas and wind from astern push ahead (drift %+.0f kN)", o[6]);
+  }
+  {                                     /* 3.9.4 ventilation: 0 < beta <= 1, less in a big sea */
+    float b1[MAX_THR], b11[MAX_THR];
+    dp_vent(&v, &DP_TABLE[1], 0, b1);
+    dp_vent(&v, &DP_TABLE[11], 0, b11);
+    int ok = 1;
+    for (int i = 0; i < v.nthr; i++) if (!(b11[i] > 0 && b11[i] <= b1[i] + 1e-6f && b1[i] <= 1)) ok = 0;
+    CHECK(ok, "ventilation (3.9.4): Beaufort 1 / 11: tunnel %.3f / %.3f, aft azimuth %.3f / %.3f", b1[0], b11[0], b1[3], b11[3]);
+  }
+  {                                     /* 3.11.3 - 3.11.5: flushing */
+    const Region *rg = dp_regions(&v, dp_case_mask(&v, 0));
+    float h = atanf(0.1f + 3.6f / 12) * 180 / 3.14159265f;      /* AZP must not wash AZS (it pushes to port, 270) */
+    int ok = reach_all(&rg[3], 270) < 1 && reach_all(&rg[3], 270 + h - 2) < 1 && reach_all(&rg[3], 270 + h + 3) > 1 &&
+             reach_all(&rg[4], 90) < 1;
+    int poly = 0;
+    for (int k = 0; k < rg[3].n; k++) if (rg[3].p[k].kind == K_POLY) poly = 1;   /* the skeg's notch */
+    CHECK(ok && poly, "3.11.3: the aft azimuths may not wash each other (sector +-%.1f deg); 3.11.5: AZP loses near the skeg", h);
+    rg = dp_regions(&v, dp_case_mask(&v, 1));                    /* group 1 lost: AZP dead, AZS may wash it */
+    float sd = 12 / 3.6f, b = 1 - 1 / (0.02f * sd * sd + 0.25f * sd + 1.2f), got = reach_all(&rg[4], 90) / v.thr[4].tf;
+    CHECK(fabsf(got - b) < 0.01f, "3.11.4: AZS washing the dead AZP keeps %.3f of its thrust (formula %.3f)", got, b);
+  }
 
   /* 3b. the thrusters push against the weather: from starboard they push to starboard, head on ahead */
   {

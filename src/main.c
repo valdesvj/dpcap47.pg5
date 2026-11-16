@@ -12,7 +12,10 @@
  *   MAP    the limiting wind for every direction and every current from 0 to 2 m/s: 612 searches.
  *   VESL   the vessel file: the hull, the areas, the thrusters and the thrust each has after the losses.
  *   PRINT  the plot and the numbers to an HP 82240 printer over the infrared port.
- * EXIT: the program menu (another vessel file, setup, about, off). The engine is dpcap.c.
+ * PLOT and TABLE: the . key switches the method, DNV-ST-0111 level 1 or ABS SKP (the DPS Guide's station keeping
+ * performance: a fixed current, the North Sea wind-wave table, SKP(a, b, c, d)).
+ * EXIT: the program menu (another vessel file, setup, the method, ABS current and margin, about, off).
+ * The engine is dpcap.c.
  */
 #include <main.h>
 #include <dmcp.h>
@@ -37,6 +40,10 @@ static float *map;                        /* NHEAD * NCUR, heap */
 static int have_res, have_map;
 static uint32_t res_ms, map_ms, map_solves;
 static int res_mhz;
+static AbsResult *abs_res;                /* heap: ABS SKP */
+static int have_abs, method;              /* method 0: DNV-ST-0111 level 1, 1: ABS SKP */
+static int abs_cur10 = 15, abs_margin = 20;   /* ABS: current in tenths of a knot, margin % */
+static uint32_t abs_ms;
 static char vfile[64] = "";               /* the vessel file, "" = the example built in */
 static char msg[64] = "";
 static int page = P_PLOT, table_top, vessel_top;
@@ -170,7 +177,11 @@ static void write_file(const char *path, const char *s) {
   sys_disk_write_enable(0);
 }
 
-static void cfg_save(void) { char s[96]; sprintf(s, "vessel=%s\n", vfile); write_file(CFG_FILE, s); }
+static void cfg_save(void) {
+  char s[160];
+  sprintf(s, "vessel=%s\nmethod=%d\nabscur=%d\nabsmargin=%d\n", vfile, method, abs_cur10, abs_margin);
+  write_file(CFG_FILE, s);
+}
 
 static int vessel_load(const char *path) {      /* 0 ok, else msg says why; "" = the example */
   Vessel v;
@@ -185,7 +196,7 @@ static int vessel_load(const char *path) {      /* 0 ok, else msg says why; "" =
   vessel = v;
   snprintf(vfile, sizeof vfile, "%s", path);
 fresh:
-  have_res = have_map = 0;
+  have_res = have_map = have_abs = 0;
   live_off = 0; live_fail = 0;
   memset(&live_a, 0, sizeof live_a);
   return 0;
@@ -203,6 +214,9 @@ static void cfg_load(void) {
     path[n] = 0;
     if (path[0] && vessel_load(path)) vessel_load("");
   }
+  if ((p = strstr(b, "method="))) method = atoi(p + 7) == 1;
+  if ((p = strstr(b, "abscur="))) { int n = atoi(p + 7); if (n >= 0 && n <= 50) abs_cur10 = n; }
+  if ((p = strstr(b, "absmargin="))) { int n = atoi(p + 10); if (n >= 0 && n <= 50) abs_margin = n; }
   free(b);
 }
 
@@ -255,6 +269,24 @@ static void compute(void) {
   have_res = 1;
 }
 
+static void compute_abs(void) {
+  if (!abs_res) return;
+  char s[64], t[12];
+  sprintf(s, "%d directions x %d cases, current %s kn", NHEAD, 1 + vessel.nthr + (vessel.ngrp > 1 ? vessel.ngrp : 0),
+          fmt(t, abs_cur10 / 10.0f, 1));
+  busy_screen("DPCAP47: ABS SKP analysis", s);
+  busy_what = "direction";
+  dp_solves = 0;
+  t_start = sys_current_ms();
+  dp_abs(&vessel, abs_cur10 / 10.0f, abs_margin / 100.0f, abs_res, progress);
+  abs_ms = sys_current_ms() - t_start;
+  res_mhz = usb_powered() ? 160 : 80;
+  have_abs = 1;
+}
+
+static void compute_method(void) { if (method) compute_abs(); else compute(); }
+static int have_method(void) { return method ? have_abs : have_res; }
+
 static void compute_map(void) {
   if (!map) return;
   busy_screen("DPCAP47: the current map", "36 directions x 17 currents, intact");
@@ -304,7 +336,10 @@ static void plot_figure(int cx, int cy, int R, int labels) {
          cy - (int)lroundf(R * cosf(a)), 0);
   }
   ship_icon(cx, cy, R / 4, 0);
-  if (have_res) {
+  if (method && have_abs) {
+    envelope(cx, cy, R, abs_res->intact, 0, 1);
+    if (abs_res->d >= 0) envelope(cx, cy, R, abs_res->group[abs_res->d_grp], 3, 0);
+  } else if (!method && have_res) {
     envelope(cx, cy, R, res->wind[0], 0, 1);
     if (res->ncase > 1) envelope(cx, cy, R, res->wwind, 3, 0);
   }
@@ -318,11 +353,33 @@ static void plot_figure(int cx, int cy, int R, int labels) {
   }
 }
 
+static void skp_s(char *s, float p) { if (p < 0) strcpy(s, "-"); else sprintf(s, "%d", (int)lroundf(p)); }
+
+static void abs_panel(int x, int y) {
+  char s[64], a[8], b[8], c[8], d[8], t[16];
+  const AbsResult *r = abs_res;
+  text(x, y, "ABS SKP  1-min wind", 0); y += 21;
+  skp_s(a, r->a); skp_s(b, r->b); skp_s(c, r->c); skp_s(d, r->d);
+  sprintf(s, "(%s, %s, %s, %s)", a, b, c, d);
+  textinv(x + 8, y, s); y += 24;
+  sprintf(s, "a intact          %s", a); text(x, y, s, 0); y += 19;
+  sprintf(s, "b least  %-6s  %s", vessel.thr[r->b_thr].name, b); text(x, y, s, 0); y += 19;
+  sprintf(s, "c most   %-6s  %s", vessel.thr[r->c_thr].name, c); text(x, y, s, 0); y += 19;
+  if (r->d >= 0) sprintf(s, "d WCF grp %d      %s", r->d_grp, d); else strcpy(s, "d WCF  -");
+  text(x, y, s, 0); y += 19;
+  sprintf(s, "e %s kn  margin %d%%", fmt(t, r->cur_kn, 1), (int)lroundf(r->margin * 100)); text(x, y, s, 0); y += 23;
+  lcd_fill_rect((uint32_t)x, (uint32_t)(y + 9), 22, 2, 1);
+  text(x + 26, y, "intact", 0);
+  for (int i = 0; i < 22; i += 6) lcd_fill_rect((uint32_t)(x + 96 + i), (uint32_t)(y + 9), 3, 1, 1);
+  text(x + 122, y, "WCF", 0); y += 21;
+  sprintf(s, "%u alloc. %s s", (unsigned)r->solves, fmt(t, abs_ms / 1000.0f, 1)); text(x, y, s, 0);
+}
+
 static void page_plot(void) {
-  if (!have_res) compute();
+  if (!have_method()) compute_method();
   lcd_clear_buf();
   char s[64], a[12], b[12], c[12], d[12], t[16];
-  snprintf(s, sizeof s, "DPCAP47  %s", vessel.name);
+  snprintf(s, sizeof s, "DPCAP47  %s   . %s", vessel.name, method ? "DNV" : "ABS");
   bar(s);
   pset = px_lcd;
   int cx = 104, cy = TOP + 92, R = 88;
@@ -330,6 +387,8 @@ static void page_plot(void) {
   text(cx - 4, TOP - 3, "0", 0);
   text(cx + R - 18, cy - 9, "90", 0);
   int x = 212, y = TOP + 2;
+  text(4, BOT - 20, "m/s", 0);
+  if (method) { abs_panel(x, y); return; }
   text(x, y, "DP Capability-L1", 0); y += 21;
   sprintf(s, "(%s, %s, %s, %s)", num_s(res->A, a), num_s(res->B, b), num_s(res->C, c), num_s(res->D, d));
   textinv(x + 8, y, s); y += 24;
@@ -344,13 +403,29 @@ static void page_plot(void) {
   text(x + 122, y, "WCSF", 0); y += 21;
   sprintf(s, "%u allocations", (unsigned)res->solves); text(x, y, s, 0); y += 19;
   sprintf(s, "%s s at %d MHz", fmt(t, res_ms / 1000.0f, 1), res_mhz); text(x, y, s, 0);
-  text(4, BOT - 20, "m/s", 0);
 }
 
 /* ------------------------------------------------------------------ TABLE */
+static void page_table_abs(void) {
+  char s[96], t[16], u[16], w[16], z[16];
+  const AbsResult *r = abs_res;
+  sprintf(s, "ABS  %d-%d  wind m/s 1-min  UP DN", table_top * 10, (table_top + 7) * 10);
+  bar(s);
+  int y = TOP;
+  sprintf(s, "from  intact  b %-5s c %-5s d grp%d", vessel.thr[r->b_thr].name, vessel.thr[r->c_thr].name, r->d_grp);
+  lcd_fill_rect(0, (uint32_t)y, LCD_X, 20, 1);
+  text(4, y, s, 1); y += 21;
+  for (int h = table_top; h < table_top + 8 && h < NHEAD; h++) {
+    sprintf(s, "%3d   %5s   %5s   %5s   %5s", h * 10, fmt(t, r->intact[h], 1), fmt(u, r->single[r->b_thr][h], 1),
+            fmt(w, r->single[r->c_thr][h], 1), r->d >= 0 ? fmt(z, r->group[r->d_grp][h], 1) : "-");
+    text(4, y, s, 0); y += 20;
+  }
+}
+
 static void page_table(void) {
-  if (!have_res) compute();
+  if (!have_method()) compute_method();
   lcd_clear_buf();
+  if (method) { page_table_abs(); return; }
   char s[96], t[16], u[16];
   sprintf(s, "TABLE  %d-%d  number, wind m/s  UP DN", table_top * 10, (table_top + 7) * 10);
   bar(s);
@@ -509,6 +584,11 @@ static void page_vessel(void) {
   sprintf(s, "wind %s/%s m2 at %s  cur %s m2", fmt(a, vessel.afw, 0), fmt(b, vessel.alw, 0), fmt(c, vessel.xlw, 1),
           fmt(c + 6, vessel.alc, 0));
   text(4, y, s, 0); y += 21;
+  if (vessel.assumed) {                     /* what the file did not give */
+    sprintf(s, "assumed:%s%s%s%s", vessel.assumed & VA_LOS ? " Los" : "", vessel.assumed & VA_XLOS ? " xLos" : "",
+            vessel.assumed & VA_BOW ? " bow 35" : "", vessel.assumed & VA_CWL ? " CWLaft 1" : "");
+    textinv(4, y, s); y += 21;
+  }
   lcd_fill_rect(0, (uint32_t)y, LCD_X, 20, 1);
   text(4, y, "  name  type   x m   y m  grp  kN", 1); y += 21;
   for (int i = vessel_top; i < vessel.nthr && y < BOT - 18; i++) {
@@ -516,6 +596,8 @@ static void page_vessel(void) {
     sprintf(s, "%d %-5s %-4s %5s %5s  %d  %s", i + 1, t->name, DP_TYPE[t->type], fmt(a, t->x, 1), fmt(b, t->y, 1), t->grp,
             fmt(c, t->tf, 0));
     if (t->type == T_PROP) sprintf(s + strlen(s), "/%s", fmt(a, t->tr, 0));
+    if (t->flags & TF_NO_D) strcat(s, " no D");
+    if (t->flags & TF_NO_AR) strcat(s, " no Ar");
     text(4, y, s, 0); y += 19;
   }
 }
@@ -535,15 +617,25 @@ static void pr_text(const char *s) {
 }
 
 static void print_all(void) {
-  if (!have_res) compute();
+  if (!have_method()) compute_method();
   pbuf = calloc(PW, PW / 8 + 1);
   if (!pbuf) { strcpy(msg, "no memory to print"); return; }
   busy_screen("DPCAP47: printing (IR)", "HP 82240 printer");
   char s[64], a[12], b[12], c[12], d[12];
-  pr_text("DPCAP47 DNV-ST-0111 L1");
-  snprintf(s, sizeof s, "%s", vessel.name); pr_text(s);
-  sprintf(s, "DP Capability-L1"); pr_text(s);
-  sprintf(s, "  (%s, %s, %s, %s)", num_s(res->A, a), num_s(res->B, b), num_s(res->C, c), num_s(res->D, d)); pr_text(s);
+  if (method) {
+    const AbsResult *r = abs_res;
+    pr_text("DPCAP47 ABS DPS Guide");
+    snprintf(s, sizeof s, "%s", vessel.name); pr_text(s);
+    skp_s(a, r->a); skp_s(b, r->b); skp_s(c, r->c); skp_s(d, r->d);
+    sprintf(s, "SKP(%s,%s,%s,%s,%d.%d,NS)", a, b, c, d, abs_cur10 / 10, abs_cur10 % 10); pr_text(s);
+    sprintf(s, "b %s  c %s  d grp %d", vessel.thr[r->b_thr].name, vessel.thr[r->c_thr].name, r->d_grp); pr_text(s);
+    sprintf(s, "margin %d%%, wind 1-min", abs_margin); pr_text(s);
+  } else {
+    pr_text("DPCAP47 DNV-ST-0111 L1");
+    snprintf(s, sizeof s, "%s", vessel.name); pr_text(s);
+    sprintf(s, "DP Capability-L1"); pr_text(s);
+    sprintf(s, "  (%s, %s, %s, %s)", num_s(res->A, a), num_s(res->B, b), num_s(res->C, c), num_s(res->D, d)); pr_text(s);
+  }
   pset = px_pr;
   plot_figure(PW / 2, PW / 2, PW / 2 - 2, 0);
   for (int y = 0; y < PW; y += 8) {                     /* a graphics line: ESC n, then n columns of 8 dots */
@@ -560,11 +652,21 @@ static void print_all(void) {
   }
   pset = px_lcd;
   free(pbuf); pbuf = NULL;
-  pr_text("from  int   m/s  WCSF");
-  for (int h = 0; h < NHEAD; h += 3) {
-    char t[12], u[12];
-    sprintf(s, "%3d  %2d %5s  %2d %5s", h * 10, res->num[0][h], fmt(t, res->wind[0][h], 1), res->wnum[h], fmt(u, res->wwind[h], 1));
-    pr_text(s);
+  if (method) {
+    const AbsResult *r = abs_res;
+    pr_text("from  intact   WCF m/s");
+    for (int h = 0; h < NHEAD; h += 3) {
+      char t[12], u[12];
+      sprintf(s, "%3d   %5s  %5s", h * 10, fmt(t, r->intact[h], 1), r->d >= 0 ? fmt(u, r->group[r->d_grp][h], 1) : "-");
+      pr_text(s);
+    }
+  } else {
+    pr_text("from  int   m/s  WCSF");
+    for (int h = 0; h < NHEAD; h += 3) {
+      char t[12], u[12];
+      sprintf(s, "%3d  %2d %5s  %2d %5s", h * 10, res->num[0][h], fmt(t, res->wind[0][h], 1), res->wnum[h], fmt(u, res->wwind[h], 1));
+      pr_text(s);
+    }
   }
   pr_text("");
   strcpy(msg, "printed");
@@ -576,11 +678,10 @@ static void about(void) {
   bar("DPCAP47 " PROGRAM_VERSION);
   int y = TOP + 2;
   static const char *const L[] = {
-    "DP capability after DNV-ST-0111 level 1",
-    "on the DM42n. (C) 2026 Victor Valdes, GPLv3.",
-    "The wind, current and wave drift coefficients",
-    "and the thrust a kW are PROVISIONAL, not yet",
-    "the standard's own: not for class or contracts.",
+    "DP capability: DNV-ST-0111 (Dec 2021) level 1,",
+    "and ABS SKP. (C) 2026 Victor Valdes, GPLv3.",
+    "Not DNV's or ABS's software, not approved:",
+    "not for class, contracts or operations.",
     "Vessel files (.DPV) in " DIR,
     "Written with the help of AI (see README)",
   };
@@ -615,8 +716,12 @@ static void menu_run(void) {
     text(4, y, "2 write the example to " EX_FILE, 0); y += 21;
     text(4, y, "3 use the example", 0); y += 21;
     text(4, y, "4 setup (time, USB disk, System)", 0); y += 21;
-    text(4, y, "5 about", 0); y += 26;
-    if (msg[0]) text(4, y, msg, 0);
+    text(4, y, "5 about", 0); y += 21;
+    char t[12];
+    sprintf(s, "6 method: %s", method ? "ABS SKP" : "DNV-ST-0111 L1"); text(4, y, s, 0); y += 21;
+    sprintf(s, "7 ABS current %s kn   8 ABS margin %d %%", fmt(t, abs_cur10 / 10.0f, 1), abs_margin);
+    text(4, y, s, 0); y += 21;
+    if (msg[0]) textinv(4, y, msg);
     static const char *K[6] = { "", "", "", "", "", "OFF" };
     lcd_draw_menu_keys(K);
     lcd_refresh();
@@ -633,6 +738,9 @@ static void menu_run(void) {
     case KEY_3: vessel_load(""); cfg_save(); strcpy(msg, "the example"); break;
     case KEY_4: wait_release(); handle_menu(&SETUP_MENU, MENU_RESET, 0); wait_release(); break;
     case KEY_5: about(); break;
+    case KEY_6: method = !method; cfg_save(); break;
+    case KEY_7: abs_cur10 = abs_cur10 >= 30 ? 5 : abs_cur10 + 5; have_abs = 0; cfg_save(); break;   /* 0.5 .. 3 kn */
+    case KEY_8: abs_margin = abs_margin >= 30 ? 0 : abs_margin + 10; have_abs = 0; cfg_save(); break;
     case KEY_F6: menu_off = 1; return;
     }
   }
@@ -706,6 +814,7 @@ void program_main(void) {
   menu_line_str_app = menu_line_str;
   pset = px_lcd;
   res = malloc(sizeof *res);
+  abs_res = malloc(sizeof *abs_res);
   map = malloc(sizeof(float) * NHEAD * NCUR);
   vessel_load("");
   cfg_load();
@@ -734,7 +843,8 @@ void program_main(void) {
       else if (page == P_TABLE && k == KEY_DOWN) table_top = table_top + 8 < NHEAD ? table_top + 8 : table_top;
       else if (page == P_TABLE && k == KEY_UP) table_top = table_top >= 8 ? table_top - 8 : 0;
       else if (page == P_MAP && k == KEY_ENTER) compute_map();
-      else if (page == P_PLOT && k == KEY_ENTER) compute();
+      else if (page == P_PLOT && k == KEY_ENTER) compute_method();
+      else if ((page == P_PLOT || page == P_TABLE) && k == KEY_DOT) { method = !method; cfg_save(); }
       else if (page == P_VESSEL && k == KEY_DOWN && vessel_top + 1 < vessel.nthr) vessel_top++;
       else if (page == P_VESSEL && k == KEY_UP && vessel_top > 0) vessel_top--;
       else continue;

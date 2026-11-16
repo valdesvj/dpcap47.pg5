@@ -382,6 +382,8 @@ class App(Gtk.Application):
         self.fill_table()
         self.plot.queue_draw()
         self.live_update()
+        if not self.shot:
+            self.on_map()
         if self.shot:
             GLib.timeout_add(600, self.take_shots)
         return False
@@ -533,14 +535,37 @@ class App(Gtk.Application):
             cr.line_to(x1 + s * math.cos(a + d), y1 + s * math.sin(a + d))
         cr.stroke()
 
-    def on_map(self, *_):
-        self.map = E.map_l1(self.v, E.case_mask(self.v, 0))
+    def on_map(self, *_, wait=False):
+        """The map, in the background (computed by itself after each Compute; the button does it again)."""
+        if getattr(self, "map_busy", False):
+            return
+        self.map_busy = True
+        self.map = None
         self.map_area.queue_draw()
+        v = E.copy(self.v)
+
+        def work():
+            m = E.map_l1(v, E.case_mask(v, 0))
+            GLib.idle_add(done, m)
+
+        def done(m):
+            self.map, self.map_busy = m, False
+            self.map_area.queue_draw()
+            return False
+        if wait:                                   # --shot: in this thread
+            done(E.map_l1(v, E.case_mask(v, 0)))
+        else:
+            threading.Thread(target=work, daemon=True).start()
 
     def draw_map(self, area, cr, W, H):
         cr.set_source_rgb(1, 1, 1)
         cr.paint()
         if not self.map:
+            cr.set_source_rgb(0, 0, 0)
+            cr.set_font_size(16)
+            cr.move_to(60, 60)
+            cr.show_text("computing the map (612 searches)…" if getattr(self, "map_busy", False)
+                         else "press the button above to compute the map")
             return
         x0, y0, w, h = 60, 30, W - 180, H - 80
         cw, ch = w / E.NHEAD, h / E.NCUR
@@ -611,7 +636,7 @@ class App(Gtk.Application):
         os.makedirs(self.shot, exist_ok=True)
         self.save_png(os.path.join(self.shot, "plot-export.png"))
         self.save_csv(os.path.join(self.shot, "results.csv"))
-        self.on_map()
+        self.on_map(wait=True)
         pages = ["plot", "table", "live", "map", "vessel"]
         self._shot_i = 0
 

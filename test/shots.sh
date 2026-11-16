@@ -8,10 +8,13 @@ cd $S/run || exit 1
 timeout 120 ../sim WAIT:300 SNAP:plot F2 SNAP:table DOWN SNAP:table2 \
     F3 SNAP:live ENTER SNAP:live_limit 4 SNAP:live_off 0 DOT SNAP:live_fail 0 \
     F4 SNAP:map0 ENTER SNAP:map F5 SNAP:vessel F6 SNAP:printed \
+    F1 DOT SNAP:abs_plot F2 SNAP:abs_table \
     EXIT SNAP:menu 5 SNAP:about EXIT EXIT SNAP:back || exit 1
 test -f simdisk/DPCAP47/EXAMPLE.DPV || { echo "shots: the example vessel file was not written"; exit 1; }
 test -s print.pbm || { echo "shots: nothing printed"; exit 1; }
-for n in plot table table2 live live_limit live_off live_fail map0 map vessel printed menu about back; do
+grep -q "method=1" simdisk/DPCAP47/DPCAP47.CFG || { echo "shots: the method was not saved"; exit 1; }
+for n in plot table table2 live live_limit live_off live_fail map0 map vessel printed menu about back \
+         abs_plot abs_table; do
   $PY ../../../test/sim/render.py $n $n.png || exit 1
 done
 $PY - <<'PY'

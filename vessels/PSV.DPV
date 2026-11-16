@@ -7,12 +7,18 @@ t=6
 afw=300
 alw=900
 xlw=3
-# thr=NAME,TYPE,x,y,kW,kN,group,fzFrom,fzTo,OPTS,D
-thr=BT1,TUN,40,0,800,0,1
-thr=BT2,TUN,37,0,800,0,2
-thr=MP,PROP,-42,-4,2000,0,1,0,0,RC,3.4
-thr=MS,PROP,-42,4,2000,0,2,0,0,RC,3.4
-thr=ST,TUN,-35,0,600,0,2
+alc=540
+xlc=-2
+los=93
+xlos=0.5
+bowdeg=30
+awlaft=760
+# thr=NAME,TYPE,x,y,kW,kN,group,fzFrom,fzTo,OPTS,D,z,Ar,k1
+thr=BT1,TUN,40,0,800,0,1,0,0,,1.8,2.5
+thr=BT2,TUN,37,0,800,0,2,0,0,,1.8,2.5
+thr=MP,PROP,-42,-4,2000,0,1,0,0,RC,3.4,2.4,5.5,1.1
+thr=MS,PROP,-42,4,2000,0,2,0,0,RC,3.4,2.4,5.5,1.1
+thr=ST,TUN,-35,0,600,0,2,0,0,,1.6,2.5
 # kW each switchboard's generators give (10 % kept for the ship): take the # away to use them
 # (make lpcheck checks only files without them)
 # gen=1,3200
