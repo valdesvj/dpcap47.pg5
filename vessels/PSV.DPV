@@ -1,0 +1,19 @@
+# DPCAP47 vessel file: a made-up 90 m supply vessel with two CPP main propellers and rudders.
+# Not any real vessel: an example of PROP thrusters (R rudder, C CPP) and of power limits (gen).
+name=EXAMPLE PSV
+lpp=90
+b=18
+t=6
+afw=300
+alw=900
+xlw=3
+# thr=NAME,TYPE,x,y,kW,kN,group,fzFrom,fzTo,OPTS
+thr=BT1,TUN,40,0,800,0,1
+thr=BT2,TUN,37,0,800,0,2
+thr=MP,PROP,-42,-4,2000,0,1,0,0,RC
+thr=MS,PROP,-42,4,2000,0,2,0,0,RC
+thr=ST,TUN,-35,0,600,0,2
+# kW each switchboard's generators give (10 % kept for the ship): take the # away to use them
+# (make lpcheck checks only files without them)
+# gen=1,3200
+# gen=2,3800

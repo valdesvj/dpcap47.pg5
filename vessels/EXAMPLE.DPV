@@ -1,0 +1,17 @@
+# DPCAP47 vessel file. A made-up DSV of about 120 m: not any real vessel.
+name=EXAMPLE DSV
+lpp=110
+b=22
+t=7
+afw=420
+alw=1500
+xlw=5
+alc=770
+xlc=0
+# thr=NAME,TYPE,x,y,kW,kN,group,fzFrom,fzTo,OPTS
+thr=BT1,TUN,48,0,1500,0,1
+thr=BT2,TUN,45,0,1500,0,2
+thr=BAZ,AZD,40,0,1500,0,3,80,100
+thr=AZP,AZD,-50,-6,3000,0,1
+thr=AZS,AZD,-50,6,3000,0,2
+thr=ST,TUN,-42,0,1000,0,3
