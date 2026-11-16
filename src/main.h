@@ -2,7 +2,7 @@
 #define __PGM_MAIN_H__
 
 #define PROGRAM_NAME    "DPCAP47"
-#define PROGRAM_VERSION "0.6"
+#define PROGRAM_VERSION "0.7"
 
 #define PROGRAM_KEYMAP_ID 0xffffffff
 

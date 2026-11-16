@@ -7,10 +7,11 @@ cd $S/run || exit 1
 # the vessel, printing (IR, into print.pbm / print.txt), the menu and about
 timeout 120 ../sim WAIT:300 SNAP:start F1 SNAP:ask ENTER SNAP:plot F1 SNAP:plot_full ADD SNAP:plot_kn F1 SNAP:plot_kn_small ADD F2 SNAP:table DOWN SNAP:table2 \
     F3 SNAP:live ENTER SNAP:live_limit 4 SNAP:live_off 0 DOT SNAP:live_fail 0 \
-    F4 SNAP:map0 ENTER SNAP:map F5 SNAP:vessel F6 SNAP:printed \
-    F1 DOT ENTER SNAP:abs_plot F2 SNAP:abs_table \
+    F4 SNAP:map0 ENTER SNAP:map F5 SNAP:vessel F6 1 SNAP:printed F6 3 SNAP:printed_ir \
+    F1 DOT ENTER SNAP:abs_plot F6 1 F2 SNAP:abs_table \
     EXIT SNAP:menu 5 SNAP:about EXIT EXIT SNAP:back || exit 1
 test -f simdisk/DPCAP47/EXAMPLE.DPV || { echo "shots: the example vessel file was not written"; exit 1; }
+test -s simdisk/DPCAP47/DNV-L1.CSV -a -s simdisk/DPCAP47/DNV-L1.RTF || { echo "shots: no report files"; exit 1; }
 test -s print.pbm || { echo "shots: nothing printed"; exit 1; }
 grep -q "method=1" simdisk/DPCAP47/DPCAP47.CFG || { echo "shots: the method was not saved"; exit 1; }
 for n in start ask plot plot_full plot_kn plot_kn_small table table2 live live_limit live_off live_fail map0 map vessel printed menu about back \

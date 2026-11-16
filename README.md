@@ -15,7 +15,7 @@ Part of the "47" family of projects (almanac47, chess47.pg5, nav47.pg5, hp47.pg5
 
 ![DPCAP47 screens](docs/screens.png)
 
-> **Version 0.6: it opens on the vessel page and computes only when asked (ENTER); EXIT stops a computation.** Everything here runs on the PC (`make test`,
+> **Version 0.7: it opens on the vessel page and computes only when asked (ENTER); EXIT stops a computation.** Everything here runs on the PC (`make test`,
 > `make lpcheck`, `make shots`). The DM42n's speed, and printing over IR, are still to be seen.
 
 > **Not for class, contracts or operations.** DPCAP47 follows DNV-ST-0111 (Edition December 2021) level 1 section
@@ -43,7 +43,7 @@ DPCAP47 needs DMCP5 3.57 or later.
 | F3 | **LIVE** | The vessel, the weather's arrow and each thruster's force. UP/DOWN turn the weather 10°. + − change the wind by 1 m/s, × ÷ by 0.1. Keys 1–9 switch a thruster off and on, `.` fails the next redundancy group, 0 restores all. **ENTER finds the limiting wind for this direction, live.** |
 | F4 | **MAP** | ENTER computes the limiting wind for 36 directions × 17 currents (0 to 2 m/s): 612 searches. Black means the vessel cannot hold even at Beaufort 0, white means it holds at 11. |
 | F5 | **VESL** | The vessel file: the hull, the areas, and each thruster with the thrust left after the losses. |
-| F6 | **PRINT** | The numbers, the plot and the table to an HP 82240 over IR (untested on a printer yet). |
+| F6 | **PRINT** | 1 or ENTER writes two files to `/DPCAP47`: a table (`DNV-L1.CSV` or `ABS-SKP.CSV`, one row a direction, opens in a spreadsheet) and a report (`.RTF`, opens in Word or LibreOffice). 2 saves the full-screen plot as a picture in `/SCREENS`. 3 prints to an HP 82240 over IR (untested on a printer). |
 | EXIT | menu | 1 load a vessel file, 2 write the example, 3 use the example, 4 setup (time, USB disk, System), 5 about, **6 the method (DNV / ABS)**, **7 the ABS current (0.5–3 kn)**, **8 the ABS margin (0–30 %)**, F6 OFF. |
 
 **Two methods.** On PLOT and TABLE, the `.` key switches between **DNV-ST-0111 level 1** and **ABS SKP** (also

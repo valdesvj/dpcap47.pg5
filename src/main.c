@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdarg.h>
 #include "dpcap.h"
 
 #define DIR      "/DPCAP47"
@@ -734,6 +735,140 @@ static void print_all(void) {
   strcpy(msg, "printed");
 }
 
+/* ------------------------------------------------------------------ PRINT to files: a table (CSV) and a report (RTF)
+   in /DPCAP47: DNV-L1.CSV, DNV-L1.RTF or ABS-SKP.CSV, ABS-SKP.RTF. The CSV has one row a direction, as the tables of
+   DNV-ST-0111 App. A (heading, intact, each redundancy group, the worst single failure): it opens in a spreadsheet. */
+#define REP_CAP 14000
+static char *rep;
+static int rep_n;
+static void ra(const char *f, ...) {
+  va_list ap;
+  va_start(ap, f);
+  if (rep_n < REP_CAP - 1) rep_n += vsnprintf(rep + rep_n, (size_t)(REP_CAP - rep_n), f, ap);
+  if (rep_n > REP_CAP - 1) rep_n = REP_CAP - 1;
+  va_end(ap);
+}
+
+static void rep_csv(void) {
+  char a[12], b[12], c[12], d[12], t[16];
+  ra("program,DPCAP47 " PROGRAM_VERSION "\r\nvessel,%s\r\n", vessel.name);
+  if (!method) {
+    ra("method,DNV-ST-0111 (Edition December 2021) level 1\r\ndynamic factor,1.25\r\n");
+    ra("DP Capability-L1,%s,%s,%s,%s\r\n", num_s(res->A, a), num_s(res->B, b), num_s(res->C, c), num_s(res->D, d));
+    ra("heading_deg,intact_number,intact_wind_ms");
+    for (int g = 1; g < res->ncase; g++) ra(",group%d_lost_number,group%d_lost_wind_ms", g, g);
+    ra(",wcsf_number,wcsf_wind_ms\r\n");
+    for (int h = 0; h < NHEAD; h++) {
+      ra("%d", h * 10);
+      for (int g = 0; g < res->ncase; g++) ra(",%d,%s", res->num[g][h], fmt(t, res->wind[g][h], 1));
+      ra(",%d,%s\r\n", res->wnum[h], fmt(t, res->wwind[h], 1));
+    }
+  } else {
+    const AbsResult *r = abs_res;
+    ra("method,ABS Guide for DP Systems - station keeping performance\r\n");
+    skp_s(a, r->a); skp_s(b, r->b); skp_s(c, r->c); skp_s(d, r->d);
+    ra("SKP,%s,%s,%s,%s,%s,North Sea\r\n", a, b, c, d, fmt(t, r->cur_kn, 1));
+    ra("margin_pct,%d\r\nwind,1-min mean\r\n", (int)lroundf(r->margin * 100));
+    ra("least effective thruster (b),%s\r\nmost effective thruster (c),%s\r\n", vessel.thr[r->b_thr].name, vessel.thr[r->c_thr].name);
+    if (r->d >= 0) ra("worst case failure (d),group %d\r\n", r->d_grp);
+    ra("heading_deg,intact_wind_ms");
+    for (int i = 0; i < vessel.nthr; i++) ra(",%s_lost_wind_ms", vessel.thr[i].name);
+    if (r->d >= 0) for (int g = 1; g <= vessel.ngrp; g++) ra(",group%d_lost_wind_ms", g);
+    ra("\r\n");
+    for (int h = 0; h < NHEAD; h++) {
+      ra("%d,%s", h * 10, fmt(t, r->intact[h], 1));
+      for (int i = 0; i < vessel.nthr; i++) ra(",%s", fmt(t, r->single[i][h], 1));
+      if (r->d >= 0) for (int g = 1; g <= vessel.ngrp; g++) ra(",%s", fmt(t, r->group[g][h], 1));
+      ra("\r\n");
+    }
+  }
+  ra("thruster,type,x_m,y_m,z_m,kW,D_m,group,nominal_kN,effective_kN\r\n");
+  for (int i = 0; i < vessel.nthr; i++) {
+    const Thruster *th = &vessel.thr[i];
+    char x[12], y[12], z[12], k[12], dd[12], n[12], e[12];
+    ra("%s,%s,%s,%s,%s,%s,%s,%d,%s,%s\r\n", th->name, DP_TYPE[th->type], fmt(x, th->x, 1), fmt(y, th->y, 1), fmt(z, th->z, 1),
+       fmt(k, th->kw, 0), fmt(dd, th->d, 2), th->grp, fmt(n, th->tnom, 0), fmt(e, th->tf, 0));
+  }
+}
+
+#define RL "\\par\r\n"
+static void rep_rtf(void) {
+  char a[12], b[12], c[12], d[12], t[16], u[16];
+  ra("{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0\\fmodern Courier New;}}\\f0\\fs20\r\n");
+  ra("{\\b DPCAP47 " PROGRAM_VERSION " - DP station keeping capability}" RL "Vessel: %s" RL, vessel.name);
+  if (!method) {
+    ra("Method: DNV-ST-0111 (Edition December 2021), level 1, dynamic factor 1.25" RL);
+    ra("{\\b DP Capability-L1 (%s, %s, %s, %s)}" RL RL, num_s(res->A, a), num_s(res->B, b), num_s(res->C, c), num_s(res->D, d));
+    ra("{\\b from   intact        WCSF        ");
+    for (int g = 1; g < res->ncase; g++) ra(" grp%d", g);
+    ra("}" RL "{\\b deg    no  m/s       no  m/s      (numbers)}" RL);
+    for (int h = 0; h < NHEAD; h++) {
+      ra("%3d    %2d %5s      %2d %5s     ", h * 10, res->num[0][h], fmt(t, res->wind[0][h], 1), res->wnum[h], fmt(u, res->wwind[h], 1));
+      for (int g = 1; g < res->ncase; g++) ra("  %2d ", res->num[g][h]);
+      ra(RL);
+    }
+    ra(RL "no: DP capability number (Table 2-1). m/s: limiting wind, 10-min mean. WCSF: the lowest across the redundancy groups." RL);
+  } else {
+    const AbsResult *r = abs_res;
+    skp_s(a, r->a); skp_s(b, r->b); skp_s(c, r->c); skp_s(d, r->d);
+    ra("Method: ABS Guide for Dynamic Positioning Systems, station keeping performance" RL);
+    ra("{\\b SKP(%s, %s, %s, %s, %s, North Sea)}  margin %d %%" RL RL, a, b, c, d, fmt(t, r->cur_kn, 1), (int)lroundf(r->margin * 100));
+    ra("{\\b from   intact   b %-6s c %-6s d group %d}" RL, vessel.thr[r->b_thr].name, vessel.thr[r->c_thr].name, r->d_grp);
+    for (int h = 0; h < NHEAD; h++) {
+      char w[16], z[16];
+      ra("%3d    %5s    %5s    %5s    %5s" RL, h * 10, fmt(t, r->intact[h], 1), fmt(u, r->single[r->b_thr][h], 1),
+         fmt(w, r->single[r->c_thr][h], 1), r->d >= 0 ? fmt(z, r->group[r->d_grp][h], 1) : "-");
+    }
+    ra(RL "Limiting wind in m/s, 1-min mean. b: least effective thruster lost, c: most effective, d: worst case failure." RL);
+  }
+  ra(RL "{\\b Thrusters}" RL "name    type   x m    y m   grp  effective kN" RL);
+  for (int i = 0; i < vessel.nthr; i++) {
+    const Thruster *th = &vessel.thr[i];
+    ra("%-7s %-5s %6s %6s   %d   %6s" RL, th->name, DP_TYPE[th->type], fmt(t, th->x, 1), fmt(u, th->y, 1), th->grp, fmt(a, th->tf, 0));
+  }
+  ra(RL "Not DNV's or ABS's software and not approved by them: not for class, contracts or operations." RL "}\r\n");
+}
+
+static void print_files(void) {
+  rep = malloc(REP_CAP);
+  if (!rep) { strcpy(msg, "no memory for the report"); return; }
+  if (!sys_disk_ok()) { free(rep); strcpy(msg, "the disk is not ready"); return; }
+  rep_n = 0; rep_csv();
+  write_file(method ? DIR "/ABS-SKP.CSV" : DIR "/DNV-L1.CSV", rep);
+  rep_n = 0; rep_rtf();
+  write_file(method ? DIR "/ABS-SKP.RTF" : DIR "/DNV-L1.RTF", rep);
+  free(rep); rep = NULL;
+  snprintf(msg, sizeof msg, "written: " DIR "/%s .CSV .RTF", method ? "ABS-SKP" : "DNV-L1");
+}
+
+static void draw(void);
+static void print_menu(void) {            /* F6: files by default; the screen; the IR printer */
+  if (!have_method()) compute_method();
+  if (!have_method()) return;
+  lcd_clear_buf();
+  bar("DPCAP47  print");
+  int y = TOP + 6;
+  text(4, y, "1 or ENTER  files: a table (CSV) and", 0); y += 21;
+  text(4, y, "            a report (RTF) in " DIR, 0); y += 26;
+  text(4, y, "2  the plot as a picture in /SCREENS", 0); y += 26;
+  text(4, y, "3  HP 82240 printer (infrared)", 0); y += 26;
+  text(4, y, "EXIT  back", 0);
+  static const char *K[6] = { "", "", "", "", "", "" };
+  lcd_draw_menu_keys(K);
+  lcd_refresh();
+  int k = wait_key();
+  if (k == KEY_1 || k == KEY_ENTER || k == KEY_F6) print_files();
+  else if (k == KEY_2) {
+    int pg = page, pf = plot_full;
+    page = P_PLOT; plot_full = 1;
+    draw();
+    create_screenshot(1);
+    page = pg; plot_full = pf;
+    strcpy(msg, "the plot is in /SCREENS");
+  }
+  else if (k == KEY_3) print_all();
+}
+
 /* ------------------------------------------------------------------ about, menu, setup */
 static void about(void) {
   lcd_clear_buf();
@@ -896,7 +1031,7 @@ void program_main(void) {
     case KEY_F3: page = P_LIVE; live_solve(); break;
     case KEY_F4: page = P_MAP; break;
     case KEY_F5: page = P_VESSEL; break;
-    case KEY_F6: print_all(); break;
+    case KEY_F6: print_menu(); break;
     case KEY_EXIT:
       wait_release();
       menu_run();
