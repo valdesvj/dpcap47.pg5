@@ -47,7 +47,7 @@ static int abs_cur10 = 15, abs_margin = 20;   /* ABS: current in tenths of a kno
 static uint32_t abs_ms;
 static char vfile[64] = "";               /* the vessel file, "" = the example built in */
 static char msg[64] = "";
-static int page = P_PLOT, table_top, vessel_top;
+static int page = P_VESSEL, table_top, vessel_top;   /* the vessel first: it needs no computing */
 
 /* LIVE */
 static int live_from = 90;                /* degrees */
@@ -248,7 +248,9 @@ static void progress(int done, int total) {
   lcd_fill_rect(0, 132, LCD_X, 44, 0);
   sprintf(s, "%s %d / %d    EXIT stops", busy_what, done, total);
   text(20, 134, s, 0);
-  sprintf(s, "%u allocations  %s s", (unsigned)dp_solves, fmt(t, (sys_current_ms() - t_start) / 1000.0f, 1));
+  uint32_t el = (sys_current_ms() - t_start) / 1000, left = done ? el * (uint32_t)(total - done) / (uint32_t)done : 0;
+  (void)t;
+  sprintf(s, "%u s gone, about %u s left", (unsigned)el, (unsigned)left);
   text(20, 156, s, 0);
   lcd_refresh_lines(108, 70);
   reset_auto_off();
@@ -297,12 +299,17 @@ static void compute_method(void) { if (method) compute_abs(); else compute(); }
 static int have_method(void) { return method ? have_abs : have_res; }
 
 static int need_result(void) {            /* 1: there is a result to show; else the page says why not */
-  if (!have_method() && !stopped) compute_method();
-  if (have_method()) return 1;
+  if (have_method()) return 1;             /* nothing is computed unasked: on the DM42n it takes minutes */
+  char s[64];
   lcd_clear_buf();
-  bar("DPCAP47  stopped");
-  text(20, 60, "The computation was stopped.", 0);
-  text(20, 84, "PLOT, then ENTER: compute it.", 0);
+  bar(method ? "DPCAP47  ABS SKP" : "DPCAP47  DNV-ST-0111 level 1");
+  text(20, 40, vessel.name, 0);
+  text(20, 64, stopped ? "The computation was stopped." : "Not computed yet.", 0);
+  sprintf(s, "%d directions x %d cases", NHEAD, method ? 1 + vessel.nthr + (vessel.ngrp > 1 ? vessel.ngrp : 0) : 1 + vessel.ngrp);
+  text(20, 88, s, 0);
+  text(20, 112, "It may take some minutes.", 0);
+  textinv(20, 140, "ENTER: compute   EXIT: stop");
+  text(20, 168, ". DNV / ABS", 0);
   return 0;
 }
 
@@ -894,7 +901,7 @@ void program_main(void) {
       else if (page == P_TABLE && k == KEY_DOWN) table_top = table_top + 8 < NHEAD ? table_top + 8 : table_top;
       else if (page == P_TABLE && k == KEY_UP) table_top = table_top >= 8 ? table_top - 8 : 0;
       else if (page == P_MAP && k == KEY_ENTER) compute_map();
-      else if (page == P_PLOT && k == KEY_ENTER) compute_method();
+      else if ((page == P_PLOT || page == P_TABLE) && k == KEY_ENTER) compute_method();
       else if (page == P_PLOT && k == KEY_ADD) { knots = !knots; cfg_save(); }
       else if ((page == P_PLOT || page == P_TABLE) && k == KEY_DOT) { method = !method; cfg_save(); }
       else if (page == P_VESSEL && k == KEY_DOWN && vessel_top + 1 < vessel.nthr) vessel_top++;
