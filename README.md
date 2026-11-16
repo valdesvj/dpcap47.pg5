@@ -133,6 +133,71 @@ bisection (Hs, Tp and current interpolated in Table 2-1).
 number. On the two example vessels it agrees in all 1580 and 1188 cases (four cases within 1 % of the edge are not
 judged).
 
+## On the PC: the GTK program
+
+`tools/dpcap47_gtk.py` runs the **same C engine** as the calculator, built as a library, so DNV level 1 gives the
+calculator's numbers. It then puts other methods next to it:
+
+| Method | What it uses |
+|---|---|
+| **DNV L1 (calculator)** | The calculator's engine and numbers, unchanged. |
+| **DNV L2** | Table 2-1 and the vessel's **own coefficient tables** (`cw=`, `cc=`, `cd=` in the vessel file), with the dynamic factor you choose. Gives DP Capability-L2 (A, B, C, D). |
+| **DNV L2-site** | A site's own weather (`site=wind,Hs,Tp` lines and `sitecur=`). Plots only, no numbers, as in the standard. |
+| **ABS SKP** | The ABS DPS Guide's North Sea wind–wave table (1-min mean wind) and a fixed current (1.5 kn by default). It adds a 20 % margin on the weather and the ABS bollard pull from the propeller diameters. The result is SKP(a, b, c, d, e, f): the % of directions the vessel holds intact, after losing the least and the most effective single thruster, and after the worst-case failure, at current e and location f. |
+
+The thrust allocation is the same C code for every method, so only the weather, the thrust and the rules differ.
+
+![The PC program](docs/pc-app.png)
+
+The pages:
+- **Plot**: every method's envelopes on one plot, in m/s or knots.
+- **Table**: every case, direction by direction.
+- **Live**: turn the weather, raise the wind and switch thrusters off, with the DNV or ABS forces and thrust.
+- **Map**: the limiting wind for every direction and current.
+- **Vessel file**: edit the file here and press Apply.
+
+Export PNG saves the plot and Export CSV saves every number.
+
+![DNV L1, L2, L2-site and ABS on one plot](docs/pc-compare.png)
+
+```bash
+# Arch: sudo pacman -S python-gobject gtk4 python-cairo   (and python-scipy for make lpcheck)
+cd ~/opt/dpcap47.pg5
+make lib                                   # build/libdpcap.so: the calculator's engine for the PC
+make pccheck                               # the methods checked (level 2 without tables = level 1, ABS ...)
+make pc F=vessels/EXAMPLE-L2.DPV           # the program; or: python3 tools/dpcap47_gtk.py FILE --methods=l1,l2,site,abs
+```
+
+`vessels/EXAMPLE-L2.DPV` is the example DSV with **made-up** level 2 tables and site weather, to show the format.
+The calculator reads the same file and skips the PC-only lines.
+
+### Where the formulas come from
+
+- **DNV-ST-0111** (Assessment of station keeping capability of dynamic positioning vessels, December 2021): free
+  from DNV's rules and standards site (search "DNV-ST-0111" at dnv.com, Rules and standards). It has the exact
+  level 1 formulas (sections 3.5–3.7: wind, current and wave drift) that replace DPCAP47's provisional coefficients.
+  It also has the requirements for levels 2 and 3. DNV's free level 1 web tool is the reference to compare against.
+- **ABS Guide for Dynamic Positioning Systems** (2024, free at eagle.org), Section 9 *Station Keeping Performance*:
+  - Table 1, the North Sea wind–wave relationship
+  - the bollard pull and current reduction formulas (Appendix 1)
+  - the tunnel thruster losses
+  - the SKP notation
+
+  ABS sends the wind and current forces to API RP 2SK or OCIMF (both sold separately, not in DPCAP47). The 20 %
+  quasi-static margin is quoted from the 2012 edition of the Guide; check the 2024 edition's wording.
+- **IMCA M 140**, *Specification and use of DP capability plots* (Rev. 2, January 2025, a complete rewrite): the
+  industry's recommended practice. It covers methods for wind, wave and current forces and full-scale plots and data
+  sheets. IMCA members can download it.
+
+### Not yet
+
+- **DNV level 3** is a time-domain simulation: a DP controller, thruster dynamics, wind gusts and slowly varying wave
+  drift, run for 3 hours a case. The vessel holds if it stays within 5 m and 3°. It is a separate program (a DP
+  simulator) and the next step.
+- **ABS tunnel losses**: tunnels keep the DNV level 1 values.
+- **ABS rudder forces**: the Guide gives these as graphs; DPCAP47 uses the provisional side force.
+- **ABS thruster–hull interaction**.
+
 ## Build
 
 ```bash

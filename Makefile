@@ -6,11 +6,14 @@
 # make test         the engine's checks on the PC (test/dptest.c)
 # make table F=x.DPV   the level 1 analysis of a vessel file, as a table, on the PC
 # make lpcheck     the allocation against an exact LP, every direction, case and Beaufort number (scipy)
+# make pc [F=x.DPV]  the PC program (GTK 4): DNV level 1, level 2, ABS SKP side by side
+# make pccheck     the PC program's methods checked (level 1 the same as the calculator's)
 # make sim          the PC simulator (build/sim/sim); make shots: its screens -> build/sim/run/*.png
 
 TARGET    = DPCAP47
 BUILD_DIR = build
 PYTHON   ?= python3
+PYTHON_GTK ?= python3
 IFC      ?= 17
 
 CC      = arm-none-eabi-gcc
@@ -77,6 +80,18 @@ $(T)/dptest: test/dptest.c src/dpcap.c src/dpcap.h
 	mkdir -p $(T)
 	$(HOSTCC) -o $@ test/dptest.c src/dpcap.c -lm
 
+# ------------------------------------------------------------------ the PC program (tools/dpcap47_gtk.py)
+lib: $(BUILD_DIR)/libdpcap.so
+$(BUILD_DIR)/libdpcap.so: src/dpcap.c src/dpcap.h
+	mkdir -p $(BUILD_DIR)
+	gcc -O2 -Wall -Wextra -shared -fPIC -Isrc -o $@ src/dpcap.c -lm
+
+pc: lib
+	$(PYTHON_GTK) tools/dpcap47_gtk.py $(F)
+
+pccheck: lib
+	$(PYTHON_GTK) tools/dpcap/check.py
+
 # ------------------------------------------------------------------ the PC simulator
 S = $(BUILD_DIR)/sim
 sim:
@@ -92,4 +107,4 @@ clean:
 
 -include $(wildcard $(BUILD_DIR)/.dep/*)
 
-.PHONY: all test table lpcheck sim shots clean
+.PHONY: all test table lpcheck lib pc pccheck sim shots clean

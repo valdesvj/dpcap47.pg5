@@ -8,7 +8,9 @@
 - DNV-ST-0111 level 1 is the frame. What is not yet the standard's own formula is marked PROVISIONAL in dpcap.c and in
   the README (the wind, current and wave drift coefficients, the thrust a kW): never present it as the standard's.
 - No real vessel's data in the repo: the example vessels are made up.
-- make test, make lpcheck, make and make shots before committing; look at every screen. The simulator's timings mean
+- The PC program (tools/dpcap47_gtk.py, tools/dpcap) uses the C engine through build/libdpcap.so: change a structure
+  in dpcap.h, change engine.py the same way (dp_sizeof checks it). Never put the allocation in Python.
+- make test, make lpcheck, make pccheck, make and make shots before committing; look at every screen. The simulator's timings mean
   nothing; the calculator's are measured on the DM42n.
 - release/DPCAP47.pg5 is built with plain make.
 - Ask before anything that can't be undone. Pull requests only for dpcap47.pg5.

@@ -443,8 +443,10 @@ void dp_analyse(const Vessel *v, Result *r, void (*progress)(int, int)) {
      afw=420  alw=1500  xlw=5                        (wind areas m2, side area centre m fwd of midships)
      alc=770  xlc=0                                  (current: underwater side area, centre; default lpp*t, 0)
      gen=1,6000                                      (kW a redundancy group generates; none: no limit)
-     thr=NAME,TYPE,x,y,kW,kN,group,fzFrom,fzTo,OPTS  (TYPE TUN AZI AZD PROP; kN 0: from kW;
-                                                       OPTS: R rudder, C CPP, D ducted, I rounded tunnel inlet) */
+     thr=NAME,TYPE,x,y,kW,kN,group,fzFrom,fzTo,OPTS,D  (TYPE TUN AZI AZD PROP; kN 0: from kW;
+                                                       OPTS: R rudder, C CPP, D ducted, I rounded tunnel inlet;
+                                                       D: propeller diameter m, optional)
+     cw= cc= cd= site= sitecur=                      (the PC's level 2 data: read by tools/dpcap, skipped here) */
 static char *trim(char *s) {
   while (*s == ' ' || *s == '\t') s++;
   char *e = s + strlen(s);
@@ -509,8 +511,8 @@ int dp_parse(Vessel *v, const char *text, char *err, int errn) {
     }
     else if (ieq(key, "thr")) {
       if (v->nthr >= MAX_THR) { snprintf(err, (size_t)errn, "line %d: at most %d thrusters", ln, MAX_THR); return -1; }
-      char *F[10];
-      int n = split(val, F, 10);
+      char *F[11];
+      int n = split(val, F, 11);
       if (n < 7) { snprintf(err, (size_t)errn, "line %d: thr=NAME,TYPE,x,y,kW,kN,group", ln); return -1; }
       Thruster *t = &v->thr[v->nthr];
       memset(t, 0, sizeof *t);
@@ -529,8 +531,12 @@ int dp_parse(Vessel *v, const char *text, char *err, int errn) {
         if (c == 'D') t->duct = 1;
         if (c == 'I') t->rounded = 1;
       }
+      if (n > 10) t->d = (float)atof(F[10]);
       if (t->kw <= 0 && t->kn <= 0) { snprintf(err, (size_t)errn, "line %d: kW or kN needed", ln); return -1; }
       v->nthr++;
+    }
+    else if (ieq(key, "cw") || ieq(key, "cc") || ieq(key, "cd") || ieq(key, "site") || ieq(key, "sitecur")) {
+      /* the PC's level 2 data (coefficient tables, a site's weather): not used here */
     }
     else { snprintf(err, (size_t)errn, "line %d: %s?", ln, key); return -1; }
   }
@@ -548,12 +554,12 @@ const char DP_EXAMPLE[] =
   "lpp=110\nb=22\nt=7\n"
   "afw=420\nalw=1500\nxlw=5\n"
   "alc=770\nxlc=0\n"
-  "# thr=NAME,TYPE,x,y,kW,kN,group,fzFrom,fzTo,OPTS\n"
+  "# thr=NAME,TYPE,x,y,kW,kN,group,fzFrom,fzTo,OPTS,D (D: propeller diameter m)\n"
   "thr=BT1,TUN,48,0,1500,0,1\n"
   "thr=BT2,TUN,45,0,1500,0,2\n"
-  "thr=BAZ,AZD,40,0,1500,0,3,80,100\n"
-  "thr=AZP,AZD,-50,-6,3000,0,1\n"
-  "thr=AZS,AZD,-50,6,3000,0,2\n"
+  "thr=BAZ,AZD,40,0,1500,0,3,80,100,,2.6\n"
+  "thr=AZP,AZD,-50,-6,3000,0,1,0,0,,3.6\n"
+  "thr=AZS,AZD,-50,6,3000,0,2,0,0,,3.6\n"
   "thr=ST,TUN,-42,0,1000,0,3\n";
 
 void dp_example(Vessel *v) {
@@ -572,4 +578,14 @@ void dp_map(const Vessel *v, uint32_t mask, float *map, void (*progress)(int, in
       map[h * NCUR + c] = dp_limit_wind(v, mask, (float)(h * 10), (float)c * (2.0f / (NCUR - 1)), -1, &a);
       if (progress) progress(++done, NHEAD * NCUR);
     }
+}
+
+int dp_sizeof(int what) {
+  switch (what) {
+  case 0: return (int)sizeof(Thruster);
+  case 1: return (int)sizeof(Vessel);
+  case 2: return (int)sizeof(Alloc);
+  case 3: return (int)sizeof(Result);
+  default: return (int)sizeof(Env);
+  }
 }

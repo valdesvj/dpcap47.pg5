@@ -27,6 +27,7 @@ typedef struct {
   int   grp;                            /* redundancy group 1.. */
   float fz_a, fz_b;                     /* forbidden thrust directions fz_a .. fz_b (clockwise), equal: none */
   int   rudder, cpp, duct, rounded;     /* PROP: a rudder behind it, CPP, ducted; TUN: rounded inlet */
+  float d;                              /* propeller diameter, m (0: not given; the PC's ABS method uses it) */
   /* derived by dp_prepare */
   float tf, tr;                         /* kN available ahead (or both ways for a tunnel), astern */
   float cl;                             /* PROP with rudder: side force / thrust at 30 degrees */
@@ -84,6 +85,8 @@ int   dp_number(const Vessel *v, uint32_t mask, float from_deg, Alloc *a);
 float dp_limit_wind(const Vessel *v, uint32_t mask, float from_deg, float cur_override, int num, Alloc *a);
 /* the whole level 1 analysis; progress(done, total) may be NULL */
 void  dp_analyse(const Vessel *v, Result *r, void (*progress)(int, int));
+/* the sizes of the structures, so a program on the PC (ctypes) can check its copy of them */
+int   dp_sizeof(int what);             /* 0 Thruster, 1 Vessel, 2 Alloc, 3 Result, 4 Env */
 /* the map: limiting wind a heading (36) and current (0..2 m/s, NCUR), map[h * NCUR + c] */
 void  dp_map(const Vessel *v, uint32_t mask, float *map, void (*progress)(int, int));
 #endif
