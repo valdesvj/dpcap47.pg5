@@ -75,7 +75,8 @@ static void textinv(int x, int y, const char *s) {        /* white on black */
 static void bar(const char *s) { lcd_fill_rect(0, 0, LCD_X, 22, 1); text(4, 1, s, 1); }
 
 static void (*pset)(int x, int y);
-static void px_lcd(int x, int y) { if ((unsigned)x < LCD_X && (unsigned)y < (unsigned)BOT) lcd_fill_rect((uint32_t)x, (uint32_t)y, 1, 1, 1); }
+static int clip_y = BOT, plot_full;        /* the full-screen plot draws over the soft keys' rows */
+static void px_lcd(int x, int y) { if ((unsigned)x < LCD_X && (unsigned)y < (unsigned)clip_y) lcd_fill_rect((uint32_t)x, (uint32_t)y, 1, 1, 1); }
 
 static void line(int x0, int y0, int x1, int y1, int dash) {   /* dash: 0 solid, n: n on n off */
   int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1, dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1, e = dx + dy, n = 0;
@@ -392,8 +393,32 @@ static void abs_panel(int x, int y) {
   sprintf(s, "%u alloc. %s s", (unsigned)r->solves, fmt(t, abs_ms / 1000.0f, 1)); text(x, y, s, 0);
 }
 
+static void page_plot_full(void) {         /* the whole screen: F1 again goes back */
+  char s[48], a[12], b[12], c[12], d[12];
+  lcd_clear_buf();
+  pset = px_lcd;
+  clip_y = LCD_Y;
+  plot_figure(LCD_X / 2, LCD_Y / 2, 117, 1);
+  clip_y = BOT;
+  text(LCD_X / 2 + 4, 2, "0", 0);
+  text(LCD_X / 2 + 96, LCD_Y / 2 - 20, "90", 0);
+  text(4, 2, vessel.name, 0);
+  if (method) {
+    skp_s(a, abs_res->a); skp_s(b, abs_res->b); skp_s(c, abs_res->c); skp_s(d, abs_res->d);
+    text(4, 24, "ABS SKP", 0);
+    sprintf(s, "(%s,%s,%s,%s)", a, b, c, d);
+  } else {
+    text(4, 24, "DNV L1", 0);
+    sprintf(s, "(%s,%s,%s,%s)", num_s(res->A, a), num_s(res->B, b), num_s(res->C, c), num_s(res->D, d));
+  }
+  text(4, 46, s, 0);
+  text(4, LCD_Y - 22, "m/s", 0);
+  text(LCD_X - 78, LCD_Y - 22, "F1 back", 0);
+}
+
 static void page_plot(void) {
   if (!need_result()) return;
+  if (plot_full) { page_plot_full(); return; }
   lcd_clear_buf();
   char s[64], a[12], b[12], c[12], d[12], t[16];
   snprintf(s, sizeof s, "DPCAP47  %s   . %s", vessel.name, method ? "DNV" : "ABS");
@@ -776,6 +801,7 @@ static void draw(void) {
   }
   if (msg[0] && page != P_LIVE) { lcd_fill_rect(0, BOT - 21, LCD_X, 21, 0); textinv(4, BOT - 21, msg); msg[0] = 0; }
   static const char *K[6] = { "PLOT", "TABLE", "LIVE", "MAP", "VESL", "PRINT" };
+  if (page == P_PLOT && plot_full && have_method()) { lcd_refresh(); return; }
   lcd_draw_menu_keys(K);
   lcd_refresh();
 }
@@ -847,7 +873,7 @@ void program_main(void) {
     if (!k) continue;
     switch (k) {
     case KEY_SCREENSHOT: create_screenshot(1); continue;
-    case KEY_F1: page = P_PLOT; break;
+    case KEY_F1: plot_full = page == P_PLOT && have_method() ? !plot_full : 0; page = P_PLOT; break;
     case KEY_F2: page = P_TABLE; break;
     case KEY_F3: page = P_LIVE; live_solve(); break;
     case KEY_F4: page = P_MAP; break;
