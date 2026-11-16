@@ -31,6 +31,9 @@
 #define TOP      24                       /* the page below the status bar */
 #define BOT      (LCD_Y - LCD_MENU_LINES) /* and above the soft keys */
 #define PI_F     3.14159265f
+/* lcd_fill_rect's last argument is the byte the LCD's memory is filled with, not a colour: 1 would set one pixel
+   column in eight (lines one pixel wide all but vanish). 0xFF is black, 0 is white. */
+#define INK      0xFF
 
 enum { P_PLOT, P_TABLE, P_LIVE, P_MAP, P_VESSEL, P_CNT };
 
@@ -68,16 +71,16 @@ static void text(int x, int y, const char *s, int inv) {
 static int tw(const char *s) { return lcd_textWidth(t20, s); }
 
 static void textinv(int x, int y, const char *s) {        /* white on black */
-  lcd_fill_rect((uint32_t)(x - 2), (uint32_t)y, (uint32_t)(tw(s) + 4), 20, 1);
+  lcd_fill_rect((uint32_t)(x - 2), (uint32_t)y, (uint32_t)(tw(s) + 4), 20, INK);
   text(x, y, s, 1);
 }
 
-static void bar(const char *s) { lcd_fill_rect(0, 0, LCD_X, 22, 1); text(4, 1, s, 1); }
+static void bar(const char *s) { lcd_fill_rect(0, 0, LCD_X, 22, INK); text(4, 1, s, 1); }
 
 static void (*pset)(int x, int y);
 static int knots;                         /* the plot's rings: 0 every 10 m/s, 1 every 10 knots (to 60) */
 static int clip_y = BOT, plot_full;        /* the full-screen plot draws over the soft keys' rows */
-static void px_lcd(int x, int y) { if ((unsigned)x < LCD_X && (unsigned)y < (unsigned)clip_y) lcd_fill_rect((uint32_t)x, (uint32_t)y, 1, 1, 1); }
+static void px_lcd(int x, int y) { if ((unsigned)x < LCD_X && (unsigned)y < (unsigned)clip_y) lcd_fill_rect((uint32_t)x, (uint32_t)y, 1, 1, INK); }
 
 static void line(int x0, int y0, int x1, int y1, int dash) {   /* dash: 0 solid, n: n on n off */
   int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1, dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1, e = dx + dy, n = 0;
@@ -242,9 +245,9 @@ static void progress(int done, int total) {
   last = w;
   char s[48], t[16];
   lcd_fill_rect(20, 110, 360, 16, 0);
-  lcd_fill_rect(20, 110, (uint32_t)w, 16, 1);
-  lcd_fill_rect(20, 110, 360, 1, 1); lcd_fill_rect(20, 125, 360, 1, 1);
-  lcd_fill_rect(20, 110, 1, 16, 1); lcd_fill_rect(379, 110, 1, 16, 1);
+  lcd_fill_rect(20, 110, (uint32_t)w, 16, INK);
+  lcd_fill_rect(20, 110, 360, 1, INK); lcd_fill_rect(20, 125, 360, 1, INK);
+  lcd_fill_rect(20, 110, 1, 16, INK); lcd_fill_rect(379, 110, 1, 16, INK);
   lcd_fill_rect(0, 132, LCD_X, 44, 0);
   sprintf(s, "%s %d / %d    EXIT stops", busy_what, done, total);
   text(20, 134, s, 0);
@@ -398,9 +401,9 @@ static void abs_panel(int x, int y) {
   if (r->d >= 0) sprintf(s, "d WCF grp %d      %s", r->d_grp, d); else strcpy(s, "d WCF  -");
   text(x, y, s, 0); y += 19;
   sprintf(s, "e %s kn  margin %d%%", fmt(t, r->cur_kn, 1), (int)lroundf(r->margin * 100)); text(x, y, s, 0); y += 23;
-  lcd_fill_rect((uint32_t)x, (uint32_t)(y + 9), 22, 2, 1);
+  lcd_fill_rect((uint32_t)x, (uint32_t)(y + 9), 22, 2, INK);
   text(x + 26, y, "intact", 0);
-  for (int i = 0; i < 22; i += 6) lcd_fill_rect((uint32_t)(x + 96 + i), (uint32_t)(y + 9), 3, 1, 1);
+  for (int i = 0; i < 22; i += 6) lcd_fill_rect((uint32_t)(x + 96 + i), (uint32_t)(y + 9), 3, 1, INK);
   text(x + 122, y, "WCF", 0); y += 21;
   sprintf(s, "%u alloc. %s s", (unsigned)r->solves, fmt(t, abs_ms / 1000.0f, 1)); text(x, y, s, 0);
 }
@@ -450,10 +453,10 @@ static void page_plot(void) {
   sprintf(s, "B all      int  %s", b);  text(x, y, s, 0); y += 19;
   sprintf(s, "C bow 30  WCSF  %s", c);  text(x, y, s, 0); y += 19;
   sprintf(s, "D all     WCSF  %s", d);  text(x, y, s, 0); y += 23;
-  lcd_fill_rect((uint32_t)x, (uint32_t)(y + 9), 22, 2, 1);
+  lcd_fill_rect((uint32_t)x, (uint32_t)(y + 9), 22, 2, INK);
   text(x + 26, y, "intact", 0);
   pset = px_lcd;
-  for (int i = 0; i < 22; i += 6) lcd_fill_rect((uint32_t)(x + 96 + i), (uint32_t)(y + 9), 3, 1, 1);
+  for (int i = 0; i < 22; i += 6) lcd_fill_rect((uint32_t)(x + 96 + i), (uint32_t)(y + 9), 3, 1, INK);
   text(x + 122, y, "WCSF", 0); y += 21;
   sprintf(s, "%u allocations", (unsigned)res->solves); text(x, y, s, 0); y += 19;
   sprintf(s, "%s s at %d MHz", fmt(t, res_ms / 1000.0f, 1), res_mhz); text(x, y, s, 0);
@@ -467,7 +470,7 @@ static void page_table_abs(void) {
   bar(s);
   int y = TOP;
   sprintf(s, "from  intact  b %-5s c %-5s d grp%d", vessel.thr[r->b_thr].name, vessel.thr[r->c_thr].name, r->d_grp);
-  lcd_fill_rect(0, (uint32_t)y, LCD_X, 20, 1);
+  lcd_fill_rect(0, (uint32_t)y, LCD_X, 20, INK);
   text(4, y, s, 1); y += 21;
   for (int h = table_top; h < table_top + 8 && h < NHEAD; h++) {
     sprintf(s, "%3d   %5s   %5s   %5s   %5s", h * 10, fmt(t, r->intact[h], 1), fmt(u, r->single[r->b_thr][h], 1),
@@ -486,7 +489,7 @@ static void page_table(void) {
   int y = TOP;
   sprintf(s, "from intact     WCSF   ");
   for (int g = 1; g < res->ncase && g <= 4; g++) sprintf(s + strlen(s), " g%d", g);
-  lcd_fill_rect(0, (uint32_t)y, LCD_X, 20, 1);
+  lcd_fill_rect(0, (uint32_t)y, LCD_X, 20, INK);
   text(4, y, s, 1); y += 21;
   for (int h = table_top; h < table_top + 8 && h < NHEAD; h++) {
     sprintf(s, "%3d  %2d %5s   %2d %5s ", h * 10, res->num[0][h], fmt(t, res->wind[0][h], 1), res->wnum[h],
@@ -555,13 +558,13 @@ static void page_live(void) {
     sprintf(s, "%d %s", i + 1, th->name);
     text(X, y, s, 0);
     int bx = X + 74, bw = 80;
-    lcd_fill_rect((uint32_t)bx, (uint32_t)(y + 4), (uint32_t)bw, 1, 1);
-    lcd_fill_rect((uint32_t)bx, (uint32_t)(y + 14), (uint32_t)bw, 1, 1);
-    lcd_fill_rect((uint32_t)bx, (uint32_t)(y + 4), 1, 11, 1);
-    lcd_fill_rect((uint32_t)(bx + bw - 1), (uint32_t)(y + 4), 1, 11, 1);
+    lcd_fill_rect((uint32_t)bx, (uint32_t)(y + 4), (uint32_t)bw, 1, INK);
+    lcd_fill_rect((uint32_t)bx, (uint32_t)(y + 14), (uint32_t)bw, 1, INK);
+    lcd_fill_rect((uint32_t)bx, (uint32_t)(y + 4), 1, 11, INK);
+    lcd_fill_rect((uint32_t)(bx + bw - 1), (uint32_t)(y + 4), 1, 11, INK);
     if (m >> i & 1) {
       int w = (int)lroundf(live_a.use[i] * (bw - 4));
-      if (w > 0) lcd_fill_rect((uint32_t)(bx + 2), (uint32_t)(y + 6), (uint32_t)w, 7, 1);
+      if (w > 0) lcd_fill_rect((uint32_t)(bx + 2), (uint32_t)(y + 6), (uint32_t)w, 7, INK);
       sprintf(s, "%d", (int)lroundf(live_a.use[i] * 100));
     } else strcpy(s, "off");
     text(bx + bw + 4, y, s, 0);
@@ -605,10 +608,10 @@ static void page_map(void) {
       if (map[h * NCUR + c] >= DP_TABLE[NBF - 1].wind) b = NBF - 1;
       shade(x0 + h * cw, y0 + (NCUR - 1 - c) * ch, cw, ch, (NBF - 1 - b) * 16 / (NBF - 1));
     }
-  lcd_fill_rect((uint32_t)x0, (uint32_t)(y0 + NCUR * ch), NHEAD * cw, 1, 1);
-  lcd_fill_rect((uint32_t)(x0 - 1), (uint32_t)y0, 1, NCUR * ch, 1);
+  lcd_fill_rect((uint32_t)x0, (uint32_t)(y0 + NCUR * ch), NHEAD * cw, 1, INK);
+  lcd_fill_rect((uint32_t)(x0 - 1), (uint32_t)y0, 1, NCUR * ch, INK);
   int y75 = y0 + (NCUR - 1 - 6) * ch + ch / 2;                  /* Table 2-1's 0.75 m/s */
-  lcd_fill_rect((uint32_t)(x0 - 6), (uint32_t)y75, 5, 1, 1);
+  lcd_fill_rect((uint32_t)(x0 - 6), (uint32_t)y75, 5, 1, INK);
   text(2, y0 - 2, "2.0", 0);
   text(2, y75 - 9, ".75", 0);
   text(2, y0 + NCUR * ch - 18, "0", 0);
@@ -619,8 +622,8 @@ static void page_map(void) {
   for (int b = 0; b <= 11; b++) {
     int lx = 44 + b * 13;
     shade(lx, ly + 3, 12, 12, (NBF - 1 - b) * 16 / (NBF - 1));
-    lcd_fill_rect((uint32_t)lx, (uint32_t)(ly + 3), 12, 1, 1); lcd_fill_rect((uint32_t)lx, (uint32_t)(ly + 14), 12, 1, 1);
-    lcd_fill_rect((uint32_t)lx, (uint32_t)(ly + 3), 1, 12, 1); lcd_fill_rect((uint32_t)(lx + 11), (uint32_t)(ly + 3), 1, 12, 1);
+    lcd_fill_rect((uint32_t)lx, (uint32_t)(ly + 3), 12, 1, INK); lcd_fill_rect((uint32_t)lx, (uint32_t)(ly + 14), 12, 1, INK);
+    lcd_fill_rect((uint32_t)lx, (uint32_t)(ly + 3), 1, 12, INK); lcd_fill_rect((uint32_t)(lx + 11), (uint32_t)(ly + 3), 1, 12, INK);
   }
   text(44 + 12 * 13 + 2, ly, "11", 0);
   sprintf(s, "%u in %s s", (unsigned)map_solves, fmt(t, map_ms / 1000.0f, 1));
@@ -644,7 +647,7 @@ static void page_vessel(void) {
             vessel.assumed & VA_BOW ? " bow 35" : "", vessel.assumed & VA_CWL ? " CWLaft 1" : "");
     textinv(4, y, s); y += 21;
   }
-  lcd_fill_rect(0, (uint32_t)y, LCD_X, 20, 1);
+  lcd_fill_rect(0, (uint32_t)y, LCD_X, 20, INK);
   text(4, y, "  name  type   x m   y m  grp  kN", 1); y += 21;
   for (int i = vessel_top; i < vessel.nthr && y < BOT - 18; i++) {
     const Thruster *t = &vessel.thr[i];

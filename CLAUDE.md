@@ -15,3 +15,4 @@
   nothing; the calculator's are measured on the DM42n.
 - release/DPCAP47.pg5 is built with plain make.
 - Ask before anything that can't be undone. Pull requests only for dpcap47.pg5.
+- lcd_fill_rect's last argument is a fill byte, not a colour: black is 0xFF (INK), never 1 (one pixel column in eight).
