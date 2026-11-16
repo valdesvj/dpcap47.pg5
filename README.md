@@ -38,7 +38,7 @@ DPCAP47 needs DMCP5 3.57 or later.
 
 | Key | Page | What it shows |
 |---|---|---|
-| F1 | **PLOT** | The capability plot: the limiting wind (m/s) for weather from each direction, intact (thick line) and the worst single failure (dashed). The A B C D numbers. ENTER computes it again. **F1 again shows the plot on the whole screen**, and F1 once more goes back. |
+| F1 | **PLOT** | The capability plot: the limiting wind (m/s) for weather from each direction, intact (thick line) and the worst single failure (dashed). The A B C D numbers. ENTER computes it again. **F1 again shows the plot on the whole screen**, and F1 once more goes back. **+ switches the rings between m/s (10, 20, 30) and knots (10 to 60).** |
 | F2 | **TABLE** | Each direction's capability number and limiting wind: intact, the worst single failure, and each group's failure. UP/DOWN scroll. |
 | F3 | **LIVE** | The vessel, the weather's arrow and each thruster's force. UP/DOWN turn the weather 10°. + − change the wind by 1 m/s, × ÷ by 0.1. Keys 1–9 switch a thruster off and on, `.` fails the next redundancy group, 0 restores all. **ENTER finds the limiting wind for this direction, live.** |
 | F4 | **MAP** | ENTER computes the limiting wind for 36 directions × 17 currents (0 to 2 m/s): 612 searches. Black means the vessel cannot hold even at Beaufort 0, white means it holds at 11. |

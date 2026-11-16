@@ -75,6 +75,7 @@ static void textinv(int x, int y, const char *s) {        /* white on black */
 static void bar(const char *s) { lcd_fill_rect(0, 0, LCD_X, 22, 1); text(4, 1, s, 1); }
 
 static void (*pset)(int x, int y);
+static int knots;                         /* the plot's rings: 0 every 10 m/s, 1 every 10 knots (to 60) */
 static int clip_y = BOT, plot_full;        /* the full-screen plot draws over the soft keys' rows */
 static void px_lcd(int x, int y) { if ((unsigned)x < LCD_X && (unsigned)y < (unsigned)clip_y) lcd_fill_rect((uint32_t)x, (uint32_t)y, 1, 1, 1); }
 
@@ -181,7 +182,7 @@ static void write_file(const char *path, const char *s) {
 
 static void cfg_save(void) {
   char s[160];
-  sprintf(s, "vessel=%s\nmethod=%d\nabscur=%d\nabsmargin=%d\n", vfile, method, abs_cur10, abs_margin);
+  sprintf(s, "vessel=%s\nmethod=%d\nabscur=%d\nabsmargin=%d\nknots=%d\n", vfile, method, abs_cur10, abs_margin, knots);
   write_file(CFG_FILE, s);
 }
 
@@ -217,6 +218,7 @@ static void cfg_load(void) {
     if (path[0] && vessel_load(path)) vessel_load("");
   }
   if ((p = strstr(b, "method="))) method = atoi(p + 7) == 1;
+  if ((p = strstr(b, "knots="))) knots = atoi(p + 6) == 1;
   if ((p = strstr(b, "abscur="))) { int n = atoi(p + 7); if (n >= 0 && n <= 50) abs_cur10 = n; }
   if ((p = strstr(b, "absmargin="))) { int n = atoi(p + 10); if (n >= 0 && n <= 50) abs_margin = n; }
   free(b);
@@ -346,7 +348,9 @@ static void envelope(int cx, int cy, int R, const float *w, int dash, int thick)
 }
 
 static void plot_figure(int cx, int cy, int R, int labels) {
-  for (int w = 10; w <= 30; w += 10) dots(cx, cy, (int)(R * w / WSCALE));
+  float ring = knots ? 10 * 0.514444f : 10.0f;            /* the edge: 36 m/s = 70 knots */
+  int nring = knots ? 6 : 3;
+  for (int k = 1; k <= nring; k++) dots(cx, cy, (int)(R * k * ring / WSCALE));
   circle(cx, cy, R, 0);
   for (int d = 0; d < 360; d += 30) {
     float a = d * PI_F / 180.0f;
@@ -363,9 +367,10 @@ static void plot_figure(int cx, int cy, int R, int labels) {
   }
   if (labels) {
     char s[8];
-    for (int w = 10; w <= 30; w += 10) {                    /* down the 225 degree line, where it is quiet */
-      int r = (int)(R * w / WSCALE);
-      sprintf(s, "%d", w);
+    for (int k = 1; k <= nring; k++) {                      /* down the 225 degree line, where it is quiet */
+      if (knots && labels < 2 && k % 2) continue;           /* the small plot: 20, 40, 60 knots */
+      int r = (int)(R * k * ring / WSCALE);
+      sprintf(s, "%d", k * 10);
       text(cx - (int)(r * 0.7071f) - 18, cy + (int)(r * 0.7071f) - 8, s, 0);
     }
   }
@@ -398,7 +403,7 @@ static void page_plot_full(void) {         /* the whole screen: F1 again goes ba
   lcd_clear_buf();
   pset = px_lcd;
   clip_y = LCD_Y;
-  plot_figure(LCD_X / 2, LCD_Y / 2, 117, 1);
+  plot_figure(LCD_X / 2, LCD_Y / 2, 117, 2);
   clip_y = BOT;
   text(LCD_X / 2 + 4, 2, "0", 0);
   text(LCD_X / 2 + 96, LCD_Y / 2 - 20, "90", 0);
@@ -412,7 +417,7 @@ static void page_plot_full(void) {         /* the whole screen: F1 again goes ba
     sprintf(s, "(%s,%s,%s,%s)", num_s(res->A, a), num_s(res->B, b), num_s(res->C, c), num_s(res->D, d));
   }
   text(4, 46, s, 0);
-  text(4, LCD_Y - 22, "m/s", 0);
+  text(4, LCD_Y - 22, knots ? "kn  + m/s" : "m/s  + kn", 0);
   text(LCD_X - 78, LCD_Y - 22, "F1 back", 0);
 }
 
@@ -429,7 +434,7 @@ static void page_plot(void) {
   text(cx - 4, TOP - 3, "0", 0);
   text(cx + R - 18, cy - 9, "90", 0);
   int x = 212, y = TOP + 2;
-  text(4, BOT - 20, "m/s", 0);
+  text(4, BOT - 20, knots ? "kn" : "m/s", 0);
   if (method) { abs_panel(x, y); return; }
   text(x, y, "DP Capability-L1", 0); y += 21;
   sprintf(s, "(%s, %s, %s, %s)", num_s(res->A, a), num_s(res->B, b), num_s(res->C, c), num_s(res->D, d));
@@ -890,6 +895,7 @@ void program_main(void) {
       else if (page == P_TABLE && k == KEY_UP) table_top = table_top >= 8 ? table_top - 8 : 0;
       else if (page == P_MAP && k == KEY_ENTER) compute_map();
       else if (page == P_PLOT && k == KEY_ENTER) compute_method();
+      else if (page == P_PLOT && k == KEY_ADD) { knots = !knots; cfg_save(); }
       else if ((page == P_PLOT || page == P_TABLE) && k == KEY_DOT) { method = !method; cfg_save(); }
       else if (page == P_VESSEL && k == KEY_DOWN && vessel_top + 1 < vessel.nthr) vessel_top++;
       else if (page == P_VESSEL && k == KEY_UP && vessel_top > 0) vessel_top--;

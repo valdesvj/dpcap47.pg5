@@ -37,12 +37,12 @@ def polar_plot(cr, W, H, results, show, unit_kt, title):
     cr.paint()
     cx, cy = W * 0.62, H * 0.53
     R = min(W * 0.35, H * 0.42)
-    top = 40.0 if not unit_kt else 80.0
+    top = 40.0 if not unit_kt else 70.0
     k = (KT if unit_kt else 1.0)
     cr.set_line_width(1)
     cr.select_font_face("Sans")
     cr.set_font_size(11)
-    step = 10 if not unit_kt else 20
+    step = 10                                   # rings every 10 m/s, or every 10 knots (to 70)
     for wv in range(step, int(top) + 1, step):
         r = R * wv / top
         cr.set_source_rgb(0.75, 0.75, 0.75)
